@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
+from src.game_engine import build_deck, suggest_synergies, validate_deck
 from src.query_knowledge import read_jsonl, result_payload, load_rules_text_index, score_block
 
 
@@ -31,6 +32,33 @@ class QueryRequest(BaseModel):
     only_cards: bool = False
     only_rules: bool = False
     show_source_text: bool = False
+
+
+class DeckCardEntry(BaseModel):
+    name: str = Field(..., min_length=1)
+    count: int = Field(default=1, ge=1)
+
+
+class ValidateDeckRequest(BaseModel):
+    format: str = Field(..., min_length=1)
+    deck: list[DeckCardEntry]
+    commander: str | None = None
+    dataset_path: str = "data/cards_light_en_it.jsonl"
+
+
+class SynergyRequest(BaseModel):
+    format: str = Field(..., min_length=1)
+    seed_cards: list[str] = Field(default_factory=list)
+    top_k: int = Field(default=20, ge=1, le=100)
+    dataset_path: str = "data/cards_light_en_it.jsonl"
+
+
+class BuildDeckRequest(BaseModel):
+    format: str = Field(..., min_length=1)
+    seed_cards: list[str] = Field(default_factory=list)
+    target_size: int | None = Field(default=None, ge=1, le=250)
+    commander: str | None = None
+    dataset_path: str = "data/cards_light_en_it.jsonl"
 
 
 app = FastAPI(title="The Stack API", version="0.1.0")
@@ -60,6 +88,42 @@ def get_rules_text_index(rules_documents_path: str) -> dict[tuple[str, int], str
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/validate-deck")
+def validate_deck_endpoint(payload: ValidateDeckRequest) -> dict[str, Any]:
+    deck_rows = [{"name": item.name, "count": item.count} for item in payload.deck]
+    return validate_deck(
+        deck_rows,
+        fmt=payload.format,
+        commander=payload.commander,
+        dataset_path=payload.dataset_path,
+    )
+
+
+@app.post("/suggest-synergies")
+def suggest_synergies_endpoint(payload: SynergyRequest) -> dict[str, Any]:
+    if not payload.seed_cards:
+        raise HTTPException(status_code=400, detail="seed_cards non puo essere vuoto.")
+    return suggest_synergies(
+        seed_cards=payload.seed_cards,
+        fmt=payload.format,
+        top_k=payload.top_k,
+        dataset_path=payload.dataset_path,
+    )
+
+
+@app.post("/build-deck")
+def build_deck_endpoint(payload: BuildDeckRequest) -> dict[str, Any]:
+    if not payload.seed_cards:
+        raise HTTPException(status_code=400, detail="seed_cards non puo essere vuoto.")
+    return build_deck(
+        seed_cards=payload.seed_cards,
+        fmt=payload.format,
+        target_size=payload.target_size,
+        commander=payload.commander,
+        dataset_path=payload.dataset_path,
+    )
 
 
 @app.post("/query")

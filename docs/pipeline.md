@@ -120,3 +120,43 @@ Web UI:
 ```powershell
 c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe -m streamlit run src/app_ui.py
 ```
+
+## 11) Gameplay endpoints (MVP)
+
+Validate deck legality:
+
+```powershell
+$body = @{
+	format = "modern"
+	deck = @(
+		@{ name = "Lightning Bolt"; count = 4 },
+		@{ name = "Snapcaster Mage"; count = 2 }
+	)
+} | ConvertTo-Json -Depth 6
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/validate-deck" -ContentType "application/json" -Body $body
+```
+
+Suggest synergies:
+
+```powershell
+$body = @{
+	format = "modern"
+	seed_cards = @("Lightning Bolt", "Snapcaster Mage")
+	top_k = 10
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/suggest-synergies" -ContentType "application/json" -Body $body
+```
+
+Build deck:
+
+```powershell
+$body = @{
+	format = "modern"
+	seed_cards = @("Lightning Bolt", "Snapcaster Mage")
+	target_size = 60
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/build-deck" -ContentType "application/json" -Body $body
+```
