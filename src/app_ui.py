@@ -6,10 +6,16 @@ from __future__ import annotations
 import json
 import csv
 import io
+from functools import lru_cache
 from pathlib import Path
 from urllib import error, request
 
 import streamlit as st
+
+try:
+    from deep_translator import GoogleTranslator
+except ImportError:  # pragma: no cover
+    GoogleTranslator = None
 
 
 API_DEFAULT = "http://127.0.0.1:8000"
@@ -63,6 +69,45 @@ def post_query(base_url: str, payload: dict[str, object]) -> dict[str, object]:
 
     with request.urlopen(http_request, timeout=120) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def translation_available() -> bool:
+    return GoogleTranslator is not None
+
+
+@lru_cache(maxsize=2048)
+def translate_short_to_italian(text: str) -> str:
+    if not text or not translation_available():
+        return text
+    try:
+        return GoogleTranslator(source="auto", target="it").translate(text)
+    except Exception:
+        return text
+
+
+def translate_to_italian(text: str) -> str:
+    if not text:
+        return text
+    if len(text) <= 3500:
+        return translate_short_to_italian(text)
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for line in text.splitlines():
+        piece_len = len(line) + 1
+        if current and current_len + piece_len > 3500:
+            chunks.append("\n".join(current))
+            current = [line]
+            current_len = piece_len
+            continue
+        current.append(line)
+        current_len += piece_len
+    if current:
+        chunks.append("\n".join(current))
+
+    translated = [translate_short_to_italian(chunk) for chunk in chunks]
+    return "\n".join(translated)
 
 
 def get_history() -> list[dict[str, object]]:
@@ -126,23 +171,31 @@ def make_payload(config: dict[str, object]) -> dict[str, object]:
     }
 
 
-def render_result_item(result: dict[str, object], show_source_text: bool, index: int) -> None:
+def render_result_item(
+    result: dict[str, object],
+    show_source_text: bool,
+    index: int,
+    translate_output: bool,
+) -> None:
     with st.container(border=True):
         st.markdown(
-            f"### {index}. {result.get('source', 'unknown')} | score {float(result.get('score', 0.0)):.4f}"
+            f"### {index}. {result.get('source', 'sconosciuto')} | punteggio {float(result.get('score', 0.0)):.4f}"
         )
         if result.get("source") == "card":
             st.markdown(f"**{result.get('name')}**")
-            st.caption(result.get("summary"))
+            summary = str(result.get("summary") or "")
+            st.caption(translate_to_italian(summary) if translate_output else summary)
             return
 
-        st.write(f"{result.get('source_file')} | section {result.get('section')}")
+        st.write(f"{result.get('source_file')} | sezione {result.get('section')}")
         if result.get("snippet"):
-            st.code(result.get("snippet"), language="text")
+            snippet = str(result.get("snippet"))
+            st.code(translate_to_italian(snippet) if translate_output else snippet, language="text")
         if show_source_text and result.get("text"):
+            full_text = str(result.get("text"))
             st.text_area(
-                "Full text",
-                value=str(result.get("text")),
+                "Testo completo",
+                value=translate_to_italian(full_text) if translate_output else full_text,
                 height=180,
                 key=f"rules-{index}-{result.get('section')}",
             )
@@ -229,7 +282,7 @@ def stability_status(
 
 
 st.title("The Stack")
-st.caption("Local Magic: The Gathering retrieval UI powered by cards and Comprehensive Rules.")
+st.caption("Interfaccia locale per interrogare carte e Comprehensive Rules di Magic in modo semantico.")
 
 st.session_state.setdefault("base_url", API_DEFAULT)
 st.session_state.setdefault("query_text", "When does summoning sickness apply?")
@@ -244,36 +297,41 @@ st.session_state.setdefault("compare_left", "")
 st.session_state.setdefault("compare_right", "")
 st.session_state.setdefault("stability_high_threshold", 0.70)
 st.session_state.setdefault("stability_medium_threshold", 0.40)
+st.session_state.setdefault("translate_to_italian", True)
 get_favorites()
 
 with st.sidebar:
-    st.header("Connection")
-    base_url = st.text_input("API base URL", key="base_url")
+    st.header("Connessione")
+    base_url = st.text_input("URL API", key="base_url")
 
     st.header("Query")
-    query_text = st.text_area("Question", key="query_text", height=100)
-    top_k = st.slider("Top results", min_value=1, max_value=10, key="top_k")
-    model_name = st.text_input("Embedding model", key="model_name")
+    query_text = st.text_area("Domanda", key="query_text", height=100)
+    top_k = st.slider("Numero risultati", min_value=1, max_value=10, key="top_k")
+    model_name = st.text_input("Modello embeddings", key="model_name")
 
-    st.header("Scope")
-    only_cards = st.checkbox("Cards only", key="only_cards")
-    only_rules = st.checkbox("Rules only", key="only_rules")
-    show_source_text = st.checkbox("Show full rules text", key="show_source_text")
-    submit = st.button("Run query", type="primary")
+    st.header("Ambito")
+    only_cards = st.checkbox("Solo carte", key="only_cards")
+    only_rules = st.checkbox("Solo regole", key="only_rules")
+    show_source_text = st.checkbox("Mostra testo completo regole", key="show_source_text")
+    translate_output = st.checkbox("Traduci risultati in italiano", key="translate_to_italian")
+    submit = st.button("Esegui query", type="primary")
+
+    if translate_output and not translation_available():
+        st.warning("Per la traduzione automatica installa 'deep-translator'.")
 
     favorites = get_favorites()
     if favorites:
         st.divider()
-        st.subheader("Favorites")
+        st.subheader("Preferiti")
         favorite_labels = [item["query"] for item in favorites]
         st.selectbox(
-            "Saved query",
+            "Query salvata",
             options=["", *favorite_labels],
             key="favorite_choice",
             label_visibility="collapsed",
         )
-        load_favorite = st.button("Load favorite")
-        save_favorite = st.button("Save current query")
+        load_favorite = st.button("Carica preferito")
+        save_favorite = st.button("Salva query corrente")
         if load_favorite and st.session_state.get("favorite_choice"):
             selected_query = st.session_state["favorite_choice"]
             matched = next(
@@ -306,24 +364,24 @@ with st.sidebar:
             st.rerun()
 
         st.divider()
-        st.subheader("Compare favorites")
+        st.subheader("Confronta preferiti")
         compare_left = st.selectbox(
-            "Left favorite",
+            "Preferito sinistra",
             options=[""] + favorite_labels,
             key="compare_left",
         )
         compare_right = st.selectbox(
-            "Right favorite",
+            "Preferito destra",
             options=[""] + favorite_labels,
             key="compare_right",
         )
-        compare_button = st.button("Compare selected favorites")
-        swap_button = st.button("Swap selected favorites")
-        show_only_differences = st.checkbox("Show only differences", key="show_only_differences")
+        compare_button = st.button("Confronta preferiti selezionati")
+        swap_button = st.button("Inverti preferiti")
+        show_only_differences = st.checkbox("Mostra solo differenze", key="show_only_differences")
 
-        st.caption("Stability thresholds")
+        st.caption("Soglie stabilita")
         stability_high_threshold = st.slider(
-            "High threshold",
+            "Soglia alta",
             min_value=0.50,
             max_value=0.95,
             value=float(st.session_state["stability_high_threshold"]),
@@ -332,7 +390,7 @@ with st.sidebar:
         )
         max_medium = max(0.49, stability_high_threshold - 0.01)
         stability_medium_threshold = st.slider(
-            "Medium threshold",
+            "Soglia media",
             min_value=0.05,
             max_value=float(max_medium),
             value=min(float(st.session_state["stability_medium_threshold"]), float(max_medium)),
@@ -350,9 +408,9 @@ with st.sidebar:
     history = get_history()
     if history:
         st.divider()
-        st.subheader("Recent queries")
+        st.subheader("Query recenti")
         selected_history = st.selectbox(
-            "Reuse a query",
+            "Riusa una query",
             options=["", *[item["query"] for item in history]],
             label_visibility="collapsed",
         )
@@ -360,13 +418,13 @@ with st.sidebar:
             query_text = selected_history
 
 if only_cards and only_rules:
-    st.error("Select only one scope: cards only or rules only.")
+    st.error("Seleziona un solo ambito: solo carte oppure solo regole.")
     st.stop()
 
 left, right = st.columns([1.2, 1])
 
 with left:
-    st.markdown('<div class="stack-panel"><div class="stack-kicker">Retrieval</div><h2 style="margin:0;">Results</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="stack-panel"><div class="stack-kicker">Retrieval</div><h2 style="margin:0;">Risultati</h2></div>', unsafe_allow_html=True)
 
 
 def run_query_payload(payload: dict[str, object]) -> dict[str, object]:
@@ -377,7 +435,7 @@ def run_query_payload(payload: dict[str, object]) -> dict[str, object]:
         st.error(f"HTTP {exc.code}: {detail}")
         st.stop()
     except error.URLError as exc:
-        st.error(f"Could not reach API at {base_url}: {exc}")
+        st.error(f"Impossibile raggiungere API su {base_url}: {exc}")
         st.stop()
 
 if submit:
@@ -414,21 +472,21 @@ if submit:
         }
     )
     with left:
-        st.metric("Results", len(results))
+        st.metric("Risultati", len(results))
         for index, result in enumerate(results, start=1):
-            render_result_item(result, show_source_text, index)
+            render_result_item(result, show_source_text, index, translate_output)
 
     with right:
-        st.markdown('<div class="stack-panel"><div class="stack-kicker">Payload</div><h2 style="margin:0;">Raw JSON</h2></div>', unsafe_allow_html=True)
+        st.markdown('<div class="stack-panel"><div class="stack-kicker">Payload</div><h2 style="margin:0;">JSON grezzo</h2></div>', unsafe_allow_html=True)
         st.code(json.dumps(response_data, ensure_ascii=False, indent=2), language="json")
         st.download_button(
-            "Download JSON",
+            "Scarica JSON",
             data=export_json_bytes(response_data),
             file_name="the-stack-query.json",
             mime="application/json",
         )
         st.download_button(
-            "Download CSV",
+            "Scarica CSV",
             data=export_csv_text(response_data),
             file_name="the-stack-query.csv",
             mime="text/csv",
@@ -436,13 +494,13 @@ if submit:
 elif favorites and compare_button:
     selected_favorites = [compare_left, compare_right]
     if "" in selected_favorites or compare_left == compare_right:
-        st.error("Select two different saved queries to compare.")
+        st.error("Seleziona due query salvate diverse per il confronto.")
         st.stop()
 
     left_config = next((item for item in favorites if item["query"] == compare_left), None)
     right_config = next((item for item in favorites if item["query"] == compare_right), None)
     if not left_config or not right_config:
-        st.error("Could not find one of the selected favorites.")
+        st.error("Non riesco a trovare uno dei preferiti selezionati.")
         st.stop()
 
     left_data = run_query_payload(make_payload(left_config))
@@ -459,25 +517,25 @@ elif favorites and compare_button:
         float(st.session_state.get("stability_medium_threshold", 0.40)),
     )
 
-    st.markdown('<div class="stack-panel"><div class="stack-kicker">Analysis</div><h2 style="margin:0;">Comparison summary</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="stack-panel"><div class="stack-kicker">Analisi</div><h2 style="margin:0;">Sintesi confronto</h2></div>', unsafe_allow_html=True)
     metric_a, metric_b, metric_c, metric_d = st.columns(4)
     metric_a.metric("Overlap", len(overlap))
-    metric_b.metric("Left only", len(left_only))
-    metric_c.metric("Right only", len(right_only))
-    metric_d.metric("Stability", f"{stability * 100:.1f}%")
+    metric_b.metric("Solo sinistra", len(left_only))
+    metric_c.metric("Solo destra", len(right_only))
+    metric_d.metric("Stabilita", f"{stability * 100:.1f}%")
     st.markdown(
         (
             f"<div class=\"stack-panel\" style=\"padding:0.6rem 0.9rem; border-color:{stability_color};\">"
-            f"<strong>Stability status:</strong> <span style=\"color:{stability_color};\">{stability_label}</span>"
+            f"<strong>Stato stabilita:</strong> <span style=\"color:{stability_color};\">{stability_label}</span>"
             "</div>"
         ),
         unsafe_allow_html=True,
     )
 
     if not show_only_differences:
-        with st.expander("Show overlap details"):
+        with st.expander("Mostra dettaglio overlap"):
             if not overlap:
-                st.caption("No shared results between left and right queries.")
+                st.caption("Nessun risultato condiviso tra le due query.")
             else:
                 for index, (left_item, right_item) in enumerate(overlap, start=1):
                     left_score = float(left_item.get("score", 0.0))
@@ -485,69 +543,79 @@ elif favorites and compare_button:
                     delta = left_score - right_score
                     st.markdown(
                         f"{index}. **{result_label(left_item)}**  \n"
-                        f"left={left_score:.4f} | right={right_score:.4f} | delta={delta:+.4f}"
+                        f"sinistra={left_score:.4f} | destra={right_score:.4f} | delta={delta:+.4f}"
                     )
 
-    with st.expander("Show unique results"):
+    with st.expander("Mostra risultati unici"):
         if left_only:
-            st.markdown("**Only in left query**")
+            st.markdown("**Solo nella query di sinistra**")
             for item in left_only:
                 st.markdown(f"- {result_label(item)}")
         else:
-            st.caption("No left-only results.")
+            st.caption("Nessun risultato solo-sinistra.")
 
         if right_only:
-            st.markdown("**Only in right query**")
+            st.markdown("**Solo nella query di destra**")
             for item in right_only:
                 st.markdown(f"- {result_label(item)}")
         else:
-            st.caption("No right-only results.")
+            st.caption("Nessun risultato solo-destra.")
 
     with left:
-        st.markdown('<div class="stack-panel"><div class="stack-kicker">Comparison</div><h2 style="margin:0;">Left favorite</h2></div>', unsafe_allow_html=True)
+        st.markdown('<div class="stack-panel"><div class="stack-kicker">Confronto</div><h2 style="margin:0;">Preferito sinistra</h2></div>', unsafe_allow_html=True)
         st.caption(left_config["query"])
         left_display = left_only if show_only_differences else left_results
-        st.metric("Results", len(left_display))
+        st.metric("Risultati", len(left_display))
         for index, result in enumerate(left_display, start=1):
-            render_result_item(result, bool(left_config.get("show_source_text", True)), index)
+            render_result_item(
+                result,
+                bool(left_config.get("show_source_text", True)),
+                index,
+                translate_output,
+            )
         st.download_button(
-            "Download left JSON",
+            "Scarica JSON sinistra",
             data=export_json_bytes(left_data),
             file_name="the-stack-left-query.json",
             mime="application/json",
         )
         st.download_button(
-            "Download left CSV",
+            "Scarica CSV sinistra",
             data=export_csv_text(left_data),
             file_name="the-stack-left-query.csv",
             mime="text/csv",
         )
 
     with right:
-        st.markdown('<div class="stack-panel"><div class="stack-kicker">Comparison</div><h2 style="margin:0;">Right favorite</h2></div>', unsafe_allow_html=True)
+        st.markdown('<div class="stack-panel"><div class="stack-kicker">Confronto</div><h2 style="margin:0;">Preferito destra</h2></div>', unsafe_allow_html=True)
         st.caption(right_config["query"])
         right_display = right_only if show_only_differences else right_results
-        st.metric("Results", len(right_display))
+        st.metric("Risultati", len(right_display))
         for index, result in enumerate(right_display, start=1):
-            render_result_item(result, bool(right_config.get("show_source_text", True)), index)
+            render_result_item(
+                result,
+                bool(right_config.get("show_source_text", True)),
+                index,
+                translate_output,
+            )
         st.download_button(
-            "Download right JSON",
+            "Scarica JSON destra",
             data=export_json_bytes(right_data),
             file_name="the-stack-right-query.json",
             mime="application/json",
         )
         st.download_button(
-            "Download right CSV",
+            "Scarica CSV destra",
             data=export_csv_text(right_data),
             file_name="the-stack-right-query.csv",
             mime="text/csv",
         )
 else:
     with left:
-        st.info("Configure the query in the sidebar and click Run query.")
+        st.info("Configura la query nel pannello laterale e premi Esegui query.")
 
         if history:
-            st.subheader("Query history")
+            st.subheader("Storico query")
             for item in history:
                 st.markdown(
                     f"- **{item['query']}** · top_k={item['top_k']} · cards={item['only_cards']} · rules={item['only_rules']}"
@@ -555,14 +623,14 @@ else:
 
         favorites = get_favorites()
         if favorites:
-            st.subheader("Saved favorites")
+            st.subheader("Preferiti salvati")
             for item in favorites[:5]:
                 st.markdown(
                     f"- **{item['query']}** · top_k={item['top_k']} · cards={item['only_cards']} · rules={item['only_rules']}"
                 )
 
     with right:
-        st.markdown('<div class="stack-panel"><div class="stack-kicker">Preview</div><h2 style="margin:0;">Sample payload</h2></div>', unsafe_allow_html=True)
+        st.markdown('<div class="stack-panel"><div class="stack-kicker">Anteprima</div><h2 style="margin:0;">Payload di esempio</h2></div>', unsafe_allow_html=True)
         st.code(
             json.dumps(
                 {
