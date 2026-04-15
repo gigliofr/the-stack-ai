@@ -237,3 +237,23 @@ Custom API URL:
 ```powershell
 ./scripts/smoke_test.ps1 -BaseUrl "http://127.0.0.1:18000"
 ```
+
+## 14) One-command startup (auto port fallback)
+
+Start API + UI together on free local ports:
+
+```powershell
+./scripts/start_stack.ps1 -Headless
+```
+
+The script prints:
+
+- API URL
+- UI URL
+- process IDs to stop both services
+
+Stop command example (printed by the script):
+
+```powershell
+Stop-Process -Id <API_PID>,<UI_PID>
+```
