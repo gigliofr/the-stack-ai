@@ -113,6 +113,39 @@ def add_favorite(entry: dict[str, object]) -> None:
     persist_favorites()
 
 
+def make_payload(config: dict[str, object]) -> dict[str, object]:
+    return {
+        "query": config.get("query", ""),
+        "top_k": int(config.get("top_k", 5)),
+        "model": config.get("model", MODEL_DEFAULT),
+        "only_cards": bool(config.get("only_cards", False)),
+        "only_rules": bool(config.get("only_rules", False)),
+        "show_source_text": bool(config.get("show_source_text", True)),
+    }
+
+
+def render_result_item(result: dict[str, object], show_source_text: bool, index: int) -> None:
+    with st.container(border=True):
+        st.markdown(
+            f"### {index}. {result.get('source', 'unknown')} | score {float(result.get('score', 0.0)):.4f}"
+        )
+        if result.get("source") == "card":
+            st.markdown(f"**{result.get('name')}**")
+            st.caption(result.get("summary"))
+            return
+
+        st.write(f"{result.get('source_file')} | section {result.get('section')}")
+        if result.get("snippet"):
+            st.code(result.get("snippet"), language="text")
+        if show_source_text and result.get("text"):
+            st.text_area(
+                "Full text",
+                value=str(result.get("text")),
+                height=180,
+                key=f"rules-{index}-{result.get('section')}",
+            )
+
+
 st.title("The Stack")
 st.caption("Local Magic: The Gathering retrieval UI powered by cards and Comprehensive Rules.")
 
@@ -186,6 +219,20 @@ with st.sidebar:
             )
             st.rerun()
 
+        st.divider()
+        st.subheader("Compare favorites")
+        compare_left = st.selectbox(
+            "Left favorite",
+            options=[""] + favorite_labels,
+            key="compare_left",
+        )
+        compare_right = st.selectbox(
+            "Right favorite",
+            options=[""] + favorite_labels,
+            key="compare_right",
+        )
+        compare_button = st.button("Compare selected favorites")
+
     history = get_history()
     if history:
         st.divider()
@@ -207,18 +254,10 @@ left, right = st.columns([1.2, 1])
 with left:
     st.markdown('<div class="stack-panel"><div class="stack-kicker">Retrieval</div><h2 style="margin:0;">Results</h2></div>', unsafe_allow_html=True)
 
-if submit:
-    payload = {
-        "query": query_text,
-        "top_k": top_k,
-        "model": model_name,
-        "only_cards": only_cards,
-        "only_rules": only_rules,
-        "show_source_text": show_source_text,
-    }
 
+def run_query_payload(payload: dict[str, object]) -> dict[str, object]:
     try:
-        response_data = post_query(base_url, payload)
+        return post_query(base_url, payload)
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         st.error(f"HTTP {exc.code}: {detail}")
@@ -226,6 +265,20 @@ if submit:
     except error.URLError as exc:
         st.error(f"Could not reach API at {base_url}: {exc}")
         st.stop()
+
+if submit:
+    payload = make_payload(
+        {
+            "query": query_text,
+            "top_k": top_k,
+            "model": model_name,
+            "only_cards": only_cards,
+            "only_rules": only_rules,
+            "show_source_text": show_source_text,
+        }
+    )
+
+    response_data = run_query_payload(payload)
 
     results = response_data.get("results", [])
     add_history_entry(
@@ -249,23 +302,41 @@ if submit:
     with left:
         st.metric("Results", len(results))
         for index, result in enumerate(results, start=1):
-            with st.container(border=True):
-                st.markdown(
-                    f"### {index}. {result.get('source', 'unknown')} | score {float(result.get('score', 0.0)):.4f}"
-                )
-                if result.get("source") == "card":
-                    st.markdown(f"**{result.get('name')}**")
-                    st.caption(result.get("summary"))
-                else:
-                    st.write(f"{result.get('source_file')} | section {result.get('section')}")
-                    if result.get("snippet"):
-                        st.code(result.get("snippet"), language="text")
-                    if show_source_text and result.get("text"):
-                        st.text_area("Full text", value=str(result.get("text")), height=180, key=f"rules-{index}")
+            render_result_item(result, show_source_text, index)
 
     with right:
         st.markdown('<div class="stack-panel"><div class="stack-kicker">Payload</div><h2 style="margin:0;">Raw JSON</h2></div>', unsafe_allow_html=True)
         st.code(json.dumps(response_data, ensure_ascii=False, indent=2), language="json")
+elif favorites and compare_button:
+    selected_favorites = [compare_left, compare_right]
+    if "" in selected_favorites or compare_left == compare_right:
+        st.error("Select two different saved queries to compare.")
+        st.stop()
+
+    left_config = next((item for item in favorites if item["query"] == compare_left), None)
+    right_config = next((item for item in favorites if item["query"] == compare_right), None)
+    if not left_config or not right_config:
+        st.error("Could not find one of the selected favorites.")
+        st.stop()
+
+    left_data = run_query_payload(make_payload(left_config))
+    right_data = run_query_payload(make_payload(right_config))
+
+    left_results = left_data.get("results", [])
+    right_results = right_data.get("results", [])
+    with left:
+        st.markdown('<div class="stack-panel"><div class="stack-kicker">Comparison</div><h2 style="margin:0;">Left favorite</h2></div>', unsafe_allow_html=True)
+        st.caption(left_config["query"])
+        st.metric("Results", len(left_results))
+        for index, result in enumerate(left_results, start=1):
+            render_result_item(result, bool(left_config.get("show_source_text", True)), index)
+
+    with right:
+        st.markdown('<div class="stack-panel"><div class="stack-kicker">Comparison</div><h2 style="margin:0;">Right favorite</h2></div>', unsafe_allow_html=True)
+        st.caption(right_config["query"])
+        st.metric("Results", len(right_results))
+        for index, result in enumerate(right_results, start=1):
+            render_result_item(result, bool(right_config.get("show_source_text", True)), index)
 else:
     with left:
         st.info("Configure the query in the sidebar and click Run query.")
