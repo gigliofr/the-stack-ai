@@ -114,3 +114,9 @@ CLI client:
 ```powershell
 c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe src/api_client.py --query "counter target spell" --top-k 5 --only-cards
 ```
+
+Web UI:
+
+```powershell
+c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe -m streamlit run src/app_ui.py
+```
