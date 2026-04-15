@@ -3,13 +3,16 @@
 
 from __future__ import annotations
 
-import argparse
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+import numpy as np
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+from sentence_transformers import SentenceTransformer
 
-from src.query_knowledge import run_query
+from src.query_knowledge import read_jsonl, result_payload, load_rules_text_index, score_block
 
 
 class QueryRequest(BaseModel):
@@ -33,6 +36,27 @@ class QueryRequest(BaseModel):
 app = FastAPI(title="The Stack API", version="0.1.0")
 
 
+@lru_cache(maxsize=8)
+def get_model(model_name: str) -> SentenceTransformer:
+    return SentenceTransformer(model_name)
+
+
+@lru_cache(maxsize=8)
+def get_index(embeddings_path: str, metadata_path: str) -> tuple[Any, list[dict[str, Any]]]:
+    embeddings = np.load(embeddings_path, mmap_mode="r")
+    metadata = list(read_jsonl(Path(metadata_path)))
+    if len(embeddings) != len(metadata):
+        raise RuntimeError(
+            f"Length mismatch for {Path(embeddings_path).name} and {Path(metadata_path).name}."
+        )
+    return embeddings, metadata
+
+
+@lru_cache(maxsize=4)
+def get_rules_text_index(rules_documents_path: str) -> dict[tuple[str, int], str]:
+    return load_rules_text_index(Path(rules_documents_path))
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -40,19 +64,90 @@ def health() -> dict[str, str]:
 
 @app.post("/query")
 def query(payload: QueryRequest) -> dict[str, Any]:
-    args = argparse.Namespace(
-        query=payload.query,
-        top_k=payload.top_k,
-        model=payload.model,
-        card_embeddings=payload.card_embeddings,
-        card_metadata=payload.card_metadata,
-        rules_embeddings=payload.rules_embeddings,
-        rules_metadata=payload.rules_metadata,
-        rules_documents=payload.rules_documents,
-        skip_rules=payload.skip_rules,
-        only_cards=payload.only_cards,
-        only_rules=payload.only_rules,
-        show_source_text=payload.show_source_text,
-        json=True,
+    if payload.only_cards and payload.only_rules:
+        raise HTTPException(status_code=400, detail="Use only one of only_cards or only_rules.")
+    if payload.only_rules and payload.skip_rules:
+        raise HTTPException(status_code=400, detail="only_rules cannot be combined with skip_rules.")
+
+    card_embeddings, card_metadata = get_index(
+        payload.card_embeddings, payload.card_metadata
     )
-    return run_query(args)
+
+    include_rules = (
+        not payload.skip_rules
+        and Path(payload.rules_embeddings).exists()
+        and Path(payload.rules_metadata).exists()
+    )
+
+    rules_embeddings = None
+    rules_metadata: list[dict[str, Any]] = []
+    if include_rules:
+        rules_embeddings, rules_metadata = get_index(
+            payload.rules_embeddings, payload.rules_metadata
+        )
+
+    rules_text_index: dict[tuple[str, int], str] = {}
+    if payload.show_source_text and include_rules:
+        rules_documents_path = Path(payload.rules_documents)
+        if not rules_documents_path.exists():
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Rules documents file not found. Build it first with build_rules_documents.py "
+                    "or provide rules_documents."
+                ),
+            )
+        rules_text_index = get_rules_text_index(payload.rules_documents)
+
+    model = get_model(payload.model)
+    query_vector = model.encode(
+        [payload.query], convert_to_numpy=True, normalize_embeddings=True
+    )[0]
+
+    block_k = max(payload.top_k * 3, 10)
+    all_rows: list[dict[str, Any]] = []
+
+    if not payload.only_rules:
+        all_rows.extend(
+            score_block(
+                np,
+                card_embeddings,
+                card_metadata,
+                query_vector,
+                source="card",
+                top_k=block_k,
+            )
+        )
+
+    if not payload.only_cards and include_rules and rules_embeddings is not None:
+        all_rows.extend(
+            score_block(
+                np,
+                rules_embeddings,
+                rules_metadata,
+                query_vector,
+                source="rules",
+                top_k=block_k,
+            )
+        )
+
+    if not all_rows:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No eligible indexes available for the selected mode. "
+                "Check source flags and embedding files."
+            ),
+        )
+
+    all_rows.sort(key=lambda item: item["_score"], reverse=True)
+    top_rows = all_rows[: max(1, payload.top_k)]
+
+    return {
+        "query": payload.query,
+        "rules_included": include_rules,
+        "results": [
+            result_payload(row, payload.show_source_text, rules_text_index)
+            for row in top_rows
+        ],
+    }

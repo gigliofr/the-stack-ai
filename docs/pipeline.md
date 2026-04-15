@@ -88,6 +88,8 @@ Start server:
 c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe -m uvicorn src.api_server:app --host 127.0.0.1 --port 8000
 ```
 
+The API caches the model and loaded vectors after the first request, so the second and later queries should be noticeably faster.
+
 Health check:
 
 ```powershell
