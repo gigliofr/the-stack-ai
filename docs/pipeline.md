@@ -88,6 +88,12 @@ Start server:
 c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe -m uvicorn src.api_server:app --host 127.0.0.1 --port 8000
 ```
 
+If port `8000` is already in use, run the API on a high port (example `18000`):
+
+```powershell
+c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe -m uvicorn src.api_server:app --host 127.0.0.1 --port 18000
+```
+
 The API caches the model and loaded vectors after the first request, so the second and later queries should be noticeably faster.
 
 Health check:
@@ -119,6 +125,21 @@ Web UI:
 
 ```powershell
 c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe -m streamlit run src/app_ui.py
+```
+
+If port `8501` is already in use, start Streamlit on another port (example `8601`):
+
+```powershell
+c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe -m streamlit run src/app_ui.py --server.headless true --server.port 8601
+```
+
+When using a non-default API port, set `URL API` in the sidebar (example `http://127.0.0.1:18000`).
+
+Quick smoke checks:
+
+```powershell
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:18000/health"
+Invoke-WebRequest -Uri "http://127.0.0.1:8601" -UseBasicParsing | Select-Object -ExpandProperty StatusCode
 ```
 
 ## 11) Gameplay endpoints (MVP)

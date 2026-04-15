@@ -10,6 +10,15 @@ from pathlib import Path
 from typing import Any, Dict, Iterable
 
 
+SET_QUERY_ALIASES: dict[str, set[str]] = {
+    "bloomburrow commander": {"blc"},
+    "alchemy: bloomburrow": {"yblb"},
+    "bloomburrow promos": {"pblb"},
+    "bloomburrow tokens": {"tblb"},
+    "bloomburrow": {"blb", "blc", "yblb", "pblb", "tblb"},
+}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Query both card and rules embeddings with multilingual semantic search."
@@ -128,6 +137,14 @@ def score_block(
     return rows
 
 
+def detect_set_filter(query: str) -> set[str]:
+    lowered = query.lower()
+    for alias, set_codes in SET_QUERY_ALIASES.items():
+        if alias in lowered:
+            return set_codes
+    return set()
+
+
 def load_rules_text_index(path: Path) -> dict[tuple[str, int], str]:
     index: dict[tuple[str, int], str] = {}
     for row in read_jsonl(path):
@@ -146,6 +163,11 @@ def load_rules_text_index(path: Path) -> dict[tuple[str, int], str]:
 
 def format_card_summary(name: Any, lang: Any, type_line: Any, set_code: Any) -> str:
     return f"name={name} | lang={lang} | type={type_line} | set={set_code}"
+
+
+def format_set_summary(query: str, set_codes: set[str]) -> str:
+    codes = ", ".join(sorted(set_codes)) if set_codes else "unknown"
+    return f"{query} | set_codes={codes}"
 
 
 def result_payload(
@@ -171,6 +193,15 @@ def result_payload(
                 "type_line": type_line,
                 "set": set_code,
                 "summary": format_card_summary(name, lang, type_line, set_code),
+            }
+        )
+        return payload
+
+    if row.get("_source") == "set":
+        payload.update(
+            {
+                "name": row.get("name"),
+                "summary": row.get("summary"),
             }
         )
         return payload
@@ -202,6 +233,9 @@ def format_payload_result(result: Dict[str, Any]) -> str:
             result.get("set"),
         )
 
+    if result.get("source") == "set":
+        return str(result.get("summary") or result.get("name") or "set lookup")
+
     snippet = result.get("snippet")
     if snippet:
         return (
@@ -231,8 +265,22 @@ def run_query(args: argparse.Namespace) -> Dict[str, Any]:
         numpy, card_embeddings_path, card_metadata_path
     )
 
+    query_set_codes = detect_set_filter(args.query)
+    query_mode = "semantic"
+    query_note = None
+    if query_set_codes:
+        query_mode = "set_lookup"
+        query_note = (
+            "Ho interpretato la domanda come una ricerca sul set Bloomburrow, "
+            "quindi sto privilegiando le carte del set e ignorando le regole."
+        )
+        card_mask = [str(row.get("set") or "").lower() in query_set_codes for row in card_metadata]
+        card_metadata = [row for row, keep in zip(card_metadata, card_mask) if keep]
+        card_embeddings = card_embeddings[card_mask]
+
     include_rules = (
         not args.skip_rules
+        and not query_set_codes
         and Path(args.rules_embeddings).exists()
         and Path(args.rules_metadata).exists()
     )
@@ -295,13 +343,26 @@ def run_query(args: argparse.Namespace) -> Dict[str, Any]:
     all_rows.sort(key=lambda item: item["_score"], reverse=True)
     top_rows = all_rows[: max(1, args.top_k)]
 
+    results = [result_payload(row, args.show_source_text, rules_text_index) for row in top_rows]
+    if query_set_codes:
+        set_name = "Bloomburrow"
+        set_result = {
+            "source": "set",
+            "score": 1.0,
+            "name": set_name,
+            "summary": (
+                "Bloomburrow è un'espansione di Magic: The Gathering. "
+                "Ho interpretato la query come una ricerca sul set e ho filtrato il corpus sulle carte del blocco Bloomburrow."
+            ),
+        }
+        results = [set_result, *results[: max(0, args.top_k - 1)]]
+
     return {
         "query": args.query,
+        "query_mode": query_mode,
+        "query_note": query_note,
         "rules_included": include_rules,
-        "results": [
-            result_payload(row, args.show_source_text, rules_text_index)
-            for row in top_rows
-        ],
+        "results": results,
     }
 
 
