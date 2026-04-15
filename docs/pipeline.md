@@ -225,3 +225,15 @@ Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:18000/suggest-synergies" -
 If the API is not running on default port 8000, set URL API in the Streamlit sidebar to:
 
 http://127.0.0.1:18000
+
+One-command smoke test (API already running):
+
+```powershell
+./scripts/smoke_test.ps1
+```
+
+Custom API URL:
+
+```powershell
+./scripts/smoke_test.ps1 -BaseUrl "http://127.0.0.1:18000"
+```
