@@ -43,3 +43,15 @@ Put .txt or .md Comprehensive Rules files in docs, then run:
 ```powershell
 c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe src/build_rules_documents.py --input-dir docs --output data/rules_documents.jsonl
 ```
+
+## 8) Build rules embeddings
+
+```powershell
+c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe src/embed_rules.py --input data/rules_documents.jsonl --output-dir data/rules_embeddings --batch-size 64
+```
+
+## 9) Query cards + rules together
+
+```powershell
+c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe src/query_knowledge.py --query "When does summoning sickness apply?" --top-k 8
+```
