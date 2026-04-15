@@ -94,7 +94,9 @@ def read_jsonl(path: Path) -> Iterable[Dict[str, Any]]:
             yield json.loads(line)
 
 
-def load_index(numpy: Any, embeddings_path: Path, metadata_path: Path) -> tuple[Any, list[Dict[str, Any]]]:
+def load_index(
+    numpy: Any, embeddings_path: Path, metadata_path: Path
+) -> tuple[Any, list[Dict[str, Any]]]:
     embeddings = numpy.load(embeddings_path, mmap_mode="r")
     metadata = list(read_jsonl(metadata_path))
     if len(embeddings) != len(metadata):
@@ -126,36 +128,49 @@ def score_block(
     return rows
 
 
-def format_result(row: Dict[str, Any]) -> str:
-    if row.get("_source") == "card":
-        return (
-            f"name={row.get('name')} | lang={row.get('lang')} | "
-            f"type={row.get('type_line')} | set={row.get('set')}"
-        )
-    snippet = row.get("snippet")
-    if snippet:
-        return (
-            f"source_file={row.get('source_file')} | section={row.get('section')} | "
-            f"snippet={snippet}"
-        )
-    return f"source_file={row.get('source_file')} | section={row.get('section')}"
+def load_rules_text_index(path: Path) -> dict[tuple[str, int], str]:
+    index: dict[tuple[str, int], str] = {}
+    for row in read_jsonl(path):
+        source_file = str(row.get("source_file") or "")
+        section = row.get("section")
+        text = str(row.get("text") or "").strip()
+        if not source_file or section is None or not text:
+            continue
+        try:
+            section_int = int(section)
+        except (TypeError, ValueError):
+            continue
+        index[(source_file, section_int)] = text
+    return index
 
 
-def result_payload(row: Dict[str, Any], include_source_text: bool, rules_text_index: dict[tuple[str, int], str]) -> Dict[str, Any]:
+def format_card_summary(name: Any, lang: Any, type_line: Any, set_code: Any) -> str:
+    return f"name={name} | lang={lang} | type={type_line} | set={set_code}"
+
+
+def result_payload(
+    row: Dict[str, Any],
+    include_source_text: bool,
+    rules_text_index: dict[tuple[str, int], str],
+) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "source": row.get("_source"),
         "score": row.get("_score"),
     }
 
     if row.get("_source") == "card":
+        name = row.get("name")
+        lang = row.get("lang")
+        type_line = row.get("type_line")
+        set_code = row.get("set")
         payload.update(
             {
                 "id": row.get("id"),
-                "name": row.get("name"),
-                "lang": row.get("lang"),
-                "type_line": row.get("type_line"),
-                "set": row.get("set"),
-                "summary": format_result(row),
+                "name": name,
+                "lang": lang,
+                "type_line": type_line,
+                "set": set_code,
+                "summary": format_card_summary(name, lang, type_line, set_code),
             }
         )
         return payload
@@ -178,24 +193,25 @@ def result_payload(row: Dict[str, Any], include_source_text: bool, rules_text_in
     return payload
 
 
-def load_rules_text_index(path: Path) -> dict[tuple[str, int], str]:
-    index: dict[tuple[str, int], str] = {}
-    for row in read_jsonl(path):
-        source_file = str(row.get("source_file") or "")
-        section = row.get("section")
-        text = str(row.get("text") or "").strip()
-        if not source_file or section is None or not text:
-            continue
-        try:
-            section_int = int(section)
-        except (TypeError, ValueError):
-            continue
-        index[(source_file, section_int)] = text
-    return index
+def format_payload_result(result: Dict[str, Any]) -> str:
+    if result.get("source") == "card":
+        return format_card_summary(
+            result.get("name"),
+            result.get("lang"),
+            result.get("type_line"),
+            result.get("set"),
+        )
+
+    snippet = result.get("snippet")
+    if snippet:
+        return (
+            f"source_file={result.get('source_file')} | section={result.get('section')} | "
+            f"snippet={snippet}"
+        )
+    return f"source_file={result.get('source_file')} | section={result.get('section')}"
 
 
-def main() -> int:
-    args = parse_args()
+def run_query(args: argparse.Namespace) -> Dict[str, Any]:
     if args.only_cards and args.only_rules:
         raise SystemExit("Use only one of --only-cards or --only-rules.")
     if args.only_rules and args.skip_rules:
@@ -207,7 +223,9 @@ def main() -> int:
     card_embeddings_path = Path(args.card_embeddings)
     card_metadata_path = Path(args.card_metadata)
     if not card_embeddings_path.exists() or not card_metadata_path.exists():
-        raise SystemExit("Card embeddings are required. Build them first with embed_documents.py")
+        raise SystemExit(
+            "Card embeddings are required. Build them first with embed_documents.py"
+        )
 
     card_embeddings, card_metadata = load_index(
         numpy, card_embeddings_path, card_metadata_path
@@ -277,35 +295,36 @@ def main() -> int:
     all_rows.sort(key=lambda item: item["_score"], reverse=True)
     top_rows = all_rows[: max(1, args.top_k)]
 
+    return {
+        "query": args.query,
+        "rules_included": include_rules,
+        "results": [
+            result_payload(row, args.show_source_text, rules_text_index)
+            for row in top_rows
+        ],
+    }
+
+
+def main() -> int:
+    args = parse_args()
+    output = run_query(args)
+
     if args.json:
-        output = {
-            "query": args.query,
-            "rules_included": include_rules,
-            "results": [
-                result_payload(row, args.show_source_text, rules_text_index)
-                for row in top_rows
-            ],
-        }
         print(json.dumps(output, ensure_ascii=False, indent=2))
         return 0
 
-    print(f"Query: {args.query}")
-    print(f"Rules included: {include_rules}")
-    print(f"Results: {len(top_rows)}")
-    for rank, row in enumerate(top_rows, start=1):
+    results = output.get("results", [])
+    print(f"Query: {output.get('query')}")
+    print(f"Rules included: {output.get('rules_included')}")
+    print(f"Results: {len(results)}")
+    for rank, result in enumerate(results, start=1):
         print(
-            f"[{rank}] source={row.get('_source')} "
-            f"score={row.get('_score'):.4f} | {format_result(row)}"
+            f"[{rank}] source={result.get('source')} "
+            f"score={float(result.get('score', 0.0)):.4f} | "
+            f"{format_payload_result(result)}"
         )
-        if args.show_source_text and row.get("_source") == "rules":
-            source_file = str(row.get("source_file") or "")
-            section = row.get("section")
-            text = None
-            if source_file and section is not None:
-                try:
-                    text = rules_text_index.get((source_file, int(section)))
-                except (TypeError, ValueError):
-                    text = None
+        if args.show_source_text and result.get("source") == "rules":
+            text = result.get("text")
             if text:
                 print(f"    text={text}")
             else:

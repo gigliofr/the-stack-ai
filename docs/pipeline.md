@@ -79,3 +79,30 @@ Machine-readable JSON output:
 ```powershell
 c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe src/query_knowledge.py --query "counter target spell" --top-k 5 --json --only-cards
 ```
+
+## 10) Run local API (FastAPI)
+
+Start server:
+
+```powershell
+c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe -m uvicorn src.api_server:app --host 127.0.0.1 --port 8000
+```
+
+Health check:
+
+```powershell
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/health"
+```
+
+Query endpoint:
+
+```powershell
+$body = @{
+	query = "When does summoning sickness apply?"
+	top_k = 5
+	only_rules = $true
+	show_source_text = $true
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/query" -ContentType "application/json" -Body $body
+```
