@@ -301,6 +301,7 @@ with st.sidebar:
         )
         compare_button = st.button("Compare selected favorites")
         swap_button = st.button("Swap selected favorites")
+        show_only_differences = st.checkbox("Show only differences", key="show_only_differences")
         if swap_button and st.session_state.get("compare_left") and st.session_state.get("compare_right"):
             st.session_state["compare_left"], st.session_state["compare_right"] = (
                 st.session_state["compare_right"],
@@ -419,18 +420,19 @@ elif favorites and compare_button:
     metric_b.metric("Left only", len(left_only))
     metric_c.metric("Right only", len(right_only))
 
-    with st.expander("Show overlap details"):
-        if not overlap:
-            st.caption("No shared results between left and right queries.")
-        else:
-            for index, (left_item, right_item) in enumerate(overlap, start=1):
-                left_score = float(left_item.get("score", 0.0))
-                right_score = float(right_item.get("score", 0.0))
-                delta = left_score - right_score
-                st.markdown(
-                    f"{index}. **{result_label(left_item)}**  \n"
-                    f"left={left_score:.4f} | right={right_score:.4f} | delta={delta:+.4f}"
-                )
+    if not show_only_differences:
+        with st.expander("Show overlap details"):
+            if not overlap:
+                st.caption("No shared results between left and right queries.")
+            else:
+                for index, (left_item, right_item) in enumerate(overlap, start=1):
+                    left_score = float(left_item.get("score", 0.0))
+                    right_score = float(right_item.get("score", 0.0))
+                    delta = left_score - right_score
+                    st.markdown(
+                        f"{index}. **{result_label(left_item)}**  \n"
+                        f"left={left_score:.4f} | right={right_score:.4f} | delta={delta:+.4f}"
+                    )
 
     with st.expander("Show unique results"):
         if left_only:
@@ -450,8 +452,9 @@ elif favorites and compare_button:
     with left:
         st.markdown('<div class="stack-panel"><div class="stack-kicker">Comparison</div><h2 style="margin:0;">Left favorite</h2></div>', unsafe_allow_html=True)
         st.caption(left_config["query"])
-        st.metric("Results", len(left_results))
-        for index, result in enumerate(left_results, start=1):
+        left_display = left_only if show_only_differences else left_results
+        st.metric("Results", len(left_display))
+        for index, result in enumerate(left_display, start=1):
             render_result_item(result, bool(left_config.get("show_source_text", True)), index)
         st.download_button(
             "Download left JSON",
@@ -469,8 +472,9 @@ elif favorites and compare_button:
     with right:
         st.markdown('<div class="stack-panel"><div class="stack-kicker">Comparison</div><h2 style="margin:0;">Right favorite</h2></div>', unsafe_allow_html=True)
         st.caption(right_config["query"])
-        st.metric("Results", len(right_results))
-        for index, result in enumerate(right_results, start=1):
+        right_display = right_only if show_only_differences else right_results
+        st.metric("Results", len(right_display))
+        for index, result in enumerate(right_display, start=1):
             render_result_item(result, bool(right_config.get("show_source_text", True)), index)
         st.download_button(
             "Download right JSON",
