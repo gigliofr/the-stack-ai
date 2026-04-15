@@ -1,0 +1,15 @@
+# Dati pesanti di Scryfall e Regole
+data/*.json
+data/*.jsonl
+data/*.txt
+data/*.pdf
+
+# Modelli e Pesi
+models/
+*.safetensors
+*.gguf
+
+# Ambiente Python
+venv/
+__pycache__/
+.DS_Store
