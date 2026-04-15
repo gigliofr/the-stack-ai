@@ -212,6 +212,16 @@ def compare_result_sets(
     return overlap, left_only, right_only
 
 
+def stability_status(overlap_count: int, left_count: int, right_count: int) -> tuple[float, str, str]:
+    union_count = max(1, left_count + right_count - overlap_count)
+    score = overlap_count / union_count
+    if score >= 0.70:
+        return score, "High", "#3CB371"
+    if score >= 0.40:
+        return score, "Medium", "#F0AD4E"
+    return score, "Low", "#E57373"
+
+
 st.title("The Stack")
 st.caption("Local Magic: The Gathering retrieval UI powered by cards and Comprehensive Rules.")
 
@@ -413,12 +423,24 @@ elif favorites and compare_button:
     left_results = left_data.get("results", [])
     right_results = right_data.get("results", [])
     overlap, left_only, right_only = compare_result_sets(left_results, right_results)
+    stability, stability_label, stability_color = stability_status(
+        len(overlap), len(left_results), len(right_results)
+    )
 
     st.markdown('<div class="stack-panel"><div class="stack-kicker">Analysis</div><h2 style="margin:0;">Comparison summary</h2></div>', unsafe_allow_html=True)
-    metric_a, metric_b, metric_c = st.columns(3)
+    metric_a, metric_b, metric_c, metric_d = st.columns(4)
     metric_a.metric("Overlap", len(overlap))
     metric_b.metric("Left only", len(left_only))
     metric_c.metric("Right only", len(right_only))
+    metric_d.metric("Stability", f"{stability * 100:.1f}%")
+    st.markdown(
+        (
+            f"<div class=\"stack-panel\" style=\"padding:0.6rem 0.9rem; border-color:{stability_color};\">"
+            f"<strong>Stability status:</strong> <span style=\"color:{stability_color};\">{stability_label}</span>"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
 
     if not show_only_differences:
         with st.expander("Show overlap details"):
