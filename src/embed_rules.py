@@ -62,6 +62,13 @@ def read_jsonl(path: Path) -> Iterable[Dict[str, Any]]:
             yield json.loads(line)
 
 
+def make_snippet(text: str, max_chars: int = 220) -> str:
+    compact = " ".join(text.split())
+    if len(compact) <= max_chars:
+        return compact
+    return compact[: max_chars - 1].rstrip() + "…"
+
+
 def load_documents(path: Path, limit: int) -> Tuple[list[Dict[str, Any]], list[str]]:
     metadata: list[Dict[str, Any]] = []
     texts: list[str] = []
@@ -75,6 +82,7 @@ def load_documents(path: Path, limit: int) -> Tuple[list[Dict[str, Any]], list[s
             {
                 "source_file": row.get("source_file"),
                 "section": row.get("section"),
+                "snippet": make_snippet(text),
             }
         )
         texts.append(text)

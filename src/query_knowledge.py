@@ -107,6 +107,12 @@ def format_result(row: Dict[str, Any]) -> str:
             f"name={row.get('name')} | lang={row.get('lang')} | "
             f"type={row.get('type_line')} | set={row.get('set')}"
         )
+    snippet = row.get("snippet")
+    if snippet:
+        return (
+            f"source_file={row.get('source_file')} | section={row.get('section')} | "
+            f"snippet={snippet}"
+        )
     return f"source_file={row.get('source_file')} | section={row.get('section')}"
 
 
