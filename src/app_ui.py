@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import csv
+import io
 from pathlib import Path
 from urllib import error, request
 
@@ -144,6 +146,34 @@ def render_result_item(result: dict[str, object], show_source_text: bool, index:
                 height=180,
                 key=f"rules-{index}-{result.get('section')}",
             )
+
+
+def export_json_bytes(data: dict[str, object]) -> bytes:
+    return json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def export_csv_text(data: dict[str, object]) -> str:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(
+        buffer,
+        fieldnames=["source", "score", "name", "lang", "type_line", "set", "source_file", "section", "snippet"],
+    )
+    writer.writeheader()
+    for result in data.get("results", []):
+        writer.writerow(
+            {
+                "source": result.get("source"),
+                "score": result.get("score"),
+                "name": result.get("name"),
+                "lang": result.get("lang"),
+                "type_line": result.get("type_line"),
+                "set": result.get("set"),
+                "source_file": result.get("source_file"),
+                "section": result.get("section"),
+                "snippet": result.get("snippet") or result.get("summary"),
+            }
+        )
+    return buffer.getvalue()
 
 
 st.title("The Stack")
@@ -307,6 +337,18 @@ if submit:
     with right:
         st.markdown('<div class="stack-panel"><div class="stack-kicker">Payload</div><h2 style="margin:0;">Raw JSON</h2></div>', unsafe_allow_html=True)
         st.code(json.dumps(response_data, ensure_ascii=False, indent=2), language="json")
+        st.download_button(
+            "Download JSON",
+            data=export_json_bytes(response_data),
+            file_name="the-stack-query.json",
+            mime="application/json",
+        )
+        st.download_button(
+            "Download CSV",
+            data=export_csv_text(response_data),
+            file_name="the-stack-query.csv",
+            mime="text/csv",
+        )
 elif favorites and compare_button:
     selected_favorites = [compare_left, compare_right]
     if "" in selected_favorites or compare_left == compare_right:
@@ -330,6 +372,18 @@ elif favorites and compare_button:
         st.metric("Results", len(left_results))
         for index, result in enumerate(left_results, start=1):
             render_result_item(result, bool(left_config.get("show_source_text", True)), index)
+        st.download_button(
+            "Download left JSON",
+            data=export_json_bytes(left_data),
+            file_name="the-stack-left-query.json",
+            mime="application/json",
+        )
+        st.download_button(
+            "Download left CSV",
+            data=export_csv_text(left_data),
+            file_name="the-stack-left-query.csv",
+            mime="text/csv",
+        )
 
     with right:
         st.markdown('<div class="stack-panel"><div class="stack-kicker">Comparison</div><h2 style="margin:0;">Right favorite</h2></div>', unsafe_allow_html=True)
@@ -337,6 +391,18 @@ elif favorites and compare_button:
         st.metric("Results", len(right_results))
         for index, result in enumerate(right_results, start=1):
             render_result_item(result, bool(right_config.get("show_source_text", True)), index)
+        st.download_button(
+            "Download right JSON",
+            data=export_json_bytes(right_data),
+            file_name="the-stack-right-query.json",
+            mime="application/json",
+        )
+        st.download_button(
+            "Download right CSV",
+            data=export_csv_text(right_data),
+            file_name="the-stack-right-query.csv",
+            mime="text/csv",
+        )
 else:
     with left:
         st.info("Configure the query in the sidebar and click Run query.")
