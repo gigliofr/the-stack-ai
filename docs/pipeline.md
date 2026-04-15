@@ -181,3 +181,47 @@ $body = @{
 
 Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/build-deck" -ContentType "application/json" -Body $body
 ```
+
+## 12) Release notes (latest)
+
+What was improved in the latest release:
+
+- Agent tab now returns richer summaries for gameplay intents.
+- Synergy responses include more than one candidate, with score and reasons.
+- Set-aware lookup for Bloomburrow was added to reduce rules noise.
+- Search rendering in the UI now shows last query results reliably.
+- Startup runbook now includes fallback ports for API/UI.
+
+## 13) Smoke test in 3 commands
+
+Use these commands to validate the full local flow quickly.
+
+1) Start API (fallback high port)
+
+```powershell
+c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe -m uvicorn src.api_server:app --host 127.0.0.1 --port 18000
+```
+
+2) Start UI (fallback high port)
+
+```powershell
+c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe -m streamlit run src/app_ui.py --server.headless true --server.port 8601
+```
+
+3) Run API checks (health + gameplay)
+
+```powershell
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:18000/health"
+
+$body = @{
+	format = "modern"
+	seed_cards = @("Llanowar Elves", "Cultivate")
+	top_k = 3
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:18000/suggest-synergies" -ContentType "application/json" -Body $body
+```
+
+If the API is not running on default port 8000, set URL API in the Streamlit sidebar to:
+
+http://127.0.0.1:18000
