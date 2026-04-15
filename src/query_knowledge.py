@@ -68,6 +68,11 @@ def parse_args() -> argparse.Namespace:
         default="data/rules_documents.jsonl",
         help="Path to rules documents JSONL (used with --show-source-text)",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON instead of text output",
+    )
     return parser.parse_args()
 
 
@@ -134,6 +139,43 @@ def format_result(row: Dict[str, Any]) -> str:
             f"snippet={snippet}"
         )
     return f"source_file={row.get('source_file')} | section={row.get('section')}"
+
+
+def result_payload(row: Dict[str, Any], include_source_text: bool, rules_text_index: dict[tuple[str, int], str]) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "source": row.get("_source"),
+        "score": row.get("_score"),
+    }
+
+    if row.get("_source") == "card":
+        payload.update(
+            {
+                "id": row.get("id"),
+                "name": row.get("name"),
+                "lang": row.get("lang"),
+                "type_line": row.get("type_line"),
+                "set": row.get("set"),
+                "summary": format_result(row),
+            }
+        )
+        return payload
+
+    source_file = row.get("source_file")
+    section = row.get("section")
+    payload.update(
+        {
+            "source_file": source_file,
+            "section": section,
+            "snippet": row.get("snippet"),
+        }
+    )
+
+    if include_source_text and source_file is not None and section is not None:
+        try:
+            payload["text"] = rules_text_index.get((str(source_file), int(section)))
+        except (TypeError, ValueError):
+            payload["text"] = None
+    return payload
 
 
 def load_rules_text_index(path: Path) -> dict[tuple[str, int], str]:
@@ -234,6 +276,18 @@ def main() -> int:
 
     all_rows.sort(key=lambda item: item["_score"], reverse=True)
     top_rows = all_rows[: max(1, args.top_k)]
+
+    if args.json:
+        output = {
+            "query": args.query,
+            "rules_included": include_rules,
+            "results": [
+                result_payload(row, args.show_source_text, rules_text_index)
+                for row in top_rows
+            ],
+        }
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return 0
 
     print(f"Query: {args.query}")
     print(f"Rules included: {include_rules}")
