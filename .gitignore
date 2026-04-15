@@ -3,6 +3,9 @@ data/*.json
 data/*.jsonl
 data/*.txt
 data/*.pdf
+data/embeddings/
+data/embeddings_smoke/
+*.npy
 
 # Modelli e Pesi
 models/

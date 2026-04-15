@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
@@ -35,10 +36,31 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--lang",
-        default="en",
-        help="Keep only cards with this language code (default: en)",
+        help="Keep only cards with this language code (legacy option)",
+    )
+    parser.add_argument(
+        "--langs",
+        default="en,it",
+        help="Comma-separated language codes to keep (default: en,it)",
     )
     return parser.parse_args()
+
+
+def parse_languages(args: argparse.Namespace) -> set[str]:
+    if args.lang:
+        return {args.lang.strip().lower()}
+
+    values = [item.strip().lower() for item in args.langs.split(",") if item.strip()]
+    if not values:
+        raise SystemExit("No valid languages provided. Example: --langs en,it")
+    return set(values)
+
+
+def normalize_json_value(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        # Keep integer-like values as int, otherwise convert to float.
+        return int(value) if value == value.to_integral_value() else float(value)
+    return value
 
 
 def compact_text(value: Optional[str]) -> Optional[str]:
@@ -63,8 +85,8 @@ def merge_faces(card: Dict[str, Any], field: str) -> Optional[str]:
     return " // ".join(chunks)
 
 
-def extract_card(card: Dict[str, Any], lang: str) -> Optional[Dict[str, Any]]:
-    if card.get("lang") != lang:
+def extract_card(card: Dict[str, Any], langs: set[str]) -> Optional[Dict[str, Any]]:
+    if str(card.get("lang", "")).lower() not in langs:
         return None
     if card.get("layout") == "token":
         return None
@@ -77,6 +99,7 @@ def extract_card(card: Dict[str, Any], lang: str) -> Optional[Dict[str, Any]]:
     return {
         "id": card.get("id"),
         "name": card.get("name"),
+        "lang": str(card.get("lang", "")).lower() or None,
         "mana_cost": mana_cost,
         "type_line": card.get("type_line") or merge_faces(card, "type_line"),
         "oracle_text": compact_text(oracle_text),
@@ -85,7 +108,7 @@ def extract_card(card: Dict[str, Any], lang: str) -> Optional[Dict[str, Any]]:
         "loyalty": card.get("loyalty"),
         "colors": card.get("colors") or [],
         "color_identity": card.get("color_identity") or [],
-        "cmc": card.get("cmc"),
+        "cmc": normalize_json_value(card.get("cmc")),
         "keywords": card.get("keywords") or [],
         "legalities": card.get("legalities") or {},
         "set": card.get("set"),
@@ -102,6 +125,7 @@ def iter_cards(path: Path) -> Iterable[Dict[str, Any]]:
 
 def main() -> int:
     args = parse_args()
+    langs = parse_languages(args)
     source_path = Path(args.input)
     output_path = Path(args.output)
 
@@ -116,7 +140,7 @@ def main() -> int:
     with output_path.open("w", encoding="utf-8") as out_file:
         for card in iter_cards(source_path):
             scanned += 1
-            row = extract_card(card, args.lang)
+            row = extract_card(card, langs)
             if row is None:
                 continue
             out_file.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -124,6 +148,7 @@ def main() -> int:
 
     print(f"Scanned: {scanned:,}")
     print(f"Written: {kept:,}")
+    print(f"Languages: {','.join(sorted(langs))}")
     print(f"Output: {output_path}")
     return 0
 
