@@ -48,6 +48,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip rules embeddings even if files exist",
     )
+    parser.add_argument(
+        "--show-source-text",
+        action="store_true",
+        help="Print full rules section text for rule results",
+    )
+    parser.add_argument(
+        "--rules-documents",
+        default="data/rules_documents.jsonl",
+        help="Path to rules documents JSONL (used with --show-source-text)",
+    )
     return parser.parse_args()
 
 
@@ -116,6 +126,22 @@ def format_result(row: Dict[str, Any]) -> str:
     return f"source_file={row.get('source_file')} | section={row.get('section')}"
 
 
+def load_rules_text_index(path: Path) -> dict[tuple[str, int], str]:
+    index: dict[tuple[str, int], str] = {}
+    for row in read_jsonl(path):
+        source_file = str(row.get("source_file") or "")
+        section = row.get("section")
+        text = str(row.get("text") or "").strip()
+        if not source_file or section is None or not text:
+            continue
+        try:
+            section_int = int(section)
+        except (TypeError, ValueError):
+            continue
+        index[(source_file, section_int)] = text
+    return index
+
+
 def main() -> int:
     args = parse_args()
     numpy = get_dependency("numpy")
@@ -142,6 +168,16 @@ def main() -> int:
         rules_embeddings, rules_metadata = load_index(
             numpy, Path(args.rules_embeddings), Path(args.rules_metadata)
         )
+
+    rules_text_index: dict[tuple[str, int], str] = {}
+    if args.show_source_text and include_rules:
+        rules_documents_path = Path(args.rules_documents)
+        if not rules_documents_path.exists():
+            raise SystemExit(
+                "Rules documents file not found. Build it first with build_rules_documents.py "
+                "or provide --rules-documents."
+            )
+        rules_text_index = load_rules_text_index(rules_documents_path)
 
     model = sentence_transformers.SentenceTransformer(args.model)
     query_vector = model.encode(
@@ -181,6 +217,19 @@ def main() -> int:
             f"[{rank}] source={row.get('_source')} "
             f"score={row.get('_score'):.4f} | {format_result(row)}"
         )
+        if args.show_source_text and row.get("_source") == "rules":
+            source_file = str(row.get("source_file") or "")
+            section = row.get("section")
+            text = None
+            if source_file and section is not None:
+                try:
+                    text = rules_text_index.get((source_file, int(section)))
+                except (TypeError, ValueError):
+                    text = None
+            if text:
+                print(f"    text={text}")
+            else:
+                print("    text=<not found in rules documents index>")
 
     return 0
 

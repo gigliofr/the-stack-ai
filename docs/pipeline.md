@@ -55,3 +55,9 @@ c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe src/embed_rules.py --i
 ```powershell
 c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe src/query_knowledge.py --query "When does summoning sickness apply?" --top-k 8
 ```
+
+To print the full text of matching rules sections:
+
+```powershell
+c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe src/query_knowledge.py --query "When does summoning sickness apply?" --top-k 5 --show-source-text
+```
