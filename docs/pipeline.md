@@ -108,3 +108,9 @@ $body = @{
 
 Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/query" -ContentType "application/json" -Body $body
 ```
+
+CLI client:
+
+```powershell
+c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe src/api_client.py --query "counter target spell" --top-k 5 --only-cards
+```
