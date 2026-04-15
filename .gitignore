@@ -5,6 +5,7 @@ data/*.txt
 data/*.pdf
 data/embeddings/
 data/embeddings_smoke/
+data/rules_embeddings/
 *.npy
 
 # Modelli e Pesi

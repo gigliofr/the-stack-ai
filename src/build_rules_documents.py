@@ -28,7 +28,11 @@ def parse_args() -> argparse.Namespace:
 
 def iter_source_files(root: Path) -> Iterable[Path]:
     for extension in ("*.txt", "*.md"):
-        yield from sorted(root.glob(extension))
+        for path in sorted(root.glob(extension)):
+            # Keep only real rules sources and ignore repo docs/runbooks.
+            if path.name.lower() in {"pipeline.md", ".gitkeep"}:
+                continue
+            yield path
 
 
 def split_sections(text: str) -> list[str]:
