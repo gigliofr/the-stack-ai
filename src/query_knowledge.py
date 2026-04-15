@@ -49,6 +49,16 @@ def parse_args() -> argparse.Namespace:
         help="Skip rules embeddings even if files exist",
     )
     parser.add_argument(
+        "--only-cards",
+        action="store_true",
+        help="Return only card results",
+    )
+    parser.add_argument(
+        "--only-rules",
+        action="store_true",
+        help="Return only rules results",
+    )
+    parser.add_argument(
         "--show-source-text",
         action="store_true",
         help="Print full rules section text for rule results",
@@ -144,6 +154,11 @@ def load_rules_text_index(path: Path) -> dict[tuple[str, int], str]:
 
 def main() -> int:
     args = parse_args()
+    if args.only_cards and args.only_rules:
+        raise SystemExit("Use only one of --only-cards or --only-rules.")
+    if args.only_rules and args.skip_rules:
+        raise SystemExit("--only-rules cannot be combined with --skip-rules.")
+
     numpy = get_dependency("numpy")
     sentence_transformers = get_dependency("sentence_transformers")
 
@@ -185,16 +200,21 @@ def main() -> int:
     )[0]
 
     block_k = max(args.top_k * 3, 10)
-    all_rows = score_block(
-        numpy,
-        card_embeddings,
-        card_metadata,
-        query_vector,
-        source="card",
-        top_k=block_k,
-    )
+    all_rows: list[Dict[str, Any]] = []
 
-    if include_rules and rules_embeddings is not None:
+    if not args.only_rules:
+        all_rows.extend(
+            score_block(
+                numpy,
+                card_embeddings,
+                card_metadata,
+                query_vector,
+                source="card",
+                top_k=block_k,
+            )
+        )
+
+    if not args.only_cards and include_rules and rules_embeddings is not None:
         all_rows.extend(
             score_block(
                 numpy,
@@ -204,6 +224,12 @@ def main() -> int:
                 source="rules",
                 top_k=block_k,
             )
+        )
+
+    if not all_rows:
+        raise SystemExit(
+            "No eligible indexes available for the selected mode. "
+            "Check source flags and embedding files."
         )
 
     all_rows.sort(key=lambda item: item["_score"], reverse=True)

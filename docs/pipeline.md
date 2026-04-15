@@ -61,3 +61,15 @@ To print the full text of matching rules sections:
 ```powershell
 c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe src/query_knowledge.py --query "When does summoning sickness apply?" --top-k 5 --show-source-text
 ```
+
+Cards only:
+
+```powershell
+c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe src/query_knowledge.py --query "counter target spell" --top-k 5 --only-cards
+```
+
+Rules only:
+
+```powershell
+c:/Users/gigli/GoWs/the-stack-ai/.venv/Scripts/python.exe src/query_knowledge.py --query "When does summoning sickness apply?" --top-k 5 --only-rules --show-source-text
+```
