@@ -176,6 +176,42 @@ def export_csv_text(data: dict[str, object]) -> str:
     return buffer.getvalue()
 
 
+def result_key(result: dict[str, object]) -> str:
+    source = str(result.get("source") or "")
+    if source == "card":
+        return f"card:{result.get('id') or result.get('name')}"
+    return f"rules:{result.get('source_file')}:{result.get('section')}"
+
+
+def result_label(result: dict[str, object]) -> str:
+    if result.get("source") == "card":
+        return str(result.get("summary") or result.get("name") or "unknown card")
+    return (
+        f"{result.get('source_file')}#section-{result.get('section')} | "
+        f"{result.get('snippet') or ''}"
+    )
+
+
+def compare_result_sets(
+    left_results: list[dict[str, object]], right_results: list[dict[str, object]]
+) -> tuple[list[tuple[dict[str, object], dict[str, object]]], list[dict[str, object]], list[dict[str, object]]]:
+    right_index = {result_key(item): item for item in right_results}
+    overlap: list[tuple[dict[str, object], dict[str, object]]] = []
+    left_only: list[dict[str, object]] = []
+
+    for left_item in left_results:
+        key = result_key(left_item)
+        right_item = right_index.get(key)
+        if right_item is None:
+            left_only.append(left_item)
+            continue
+        overlap.append((left_item, right_item))
+
+    left_index = {result_key(item): item for item in left_results}
+    right_only = [item for item in right_results if result_key(item) not in left_index]
+    return overlap, left_only, right_only
+
+
 st.title("The Stack")
 st.caption("Local Magic: The Gathering retrieval UI powered by cards and Comprehensive Rules.")
 
@@ -375,6 +411,42 @@ elif favorites and compare_button:
 
     left_results = left_data.get("results", [])
     right_results = right_data.get("results", [])
+    overlap, left_only, right_only = compare_result_sets(left_results, right_results)
+
+    st.markdown('<div class="stack-panel"><div class="stack-kicker">Analysis</div><h2 style="margin:0;">Comparison summary</h2></div>', unsafe_allow_html=True)
+    metric_a, metric_b, metric_c = st.columns(3)
+    metric_a.metric("Overlap", len(overlap))
+    metric_b.metric("Left only", len(left_only))
+    metric_c.metric("Right only", len(right_only))
+
+    with st.expander("Show overlap details"):
+        if not overlap:
+            st.caption("No shared results between left and right queries.")
+        else:
+            for index, (left_item, right_item) in enumerate(overlap, start=1):
+                left_score = float(left_item.get("score", 0.0))
+                right_score = float(right_item.get("score", 0.0))
+                delta = left_score - right_score
+                st.markdown(
+                    f"{index}. **{result_label(left_item)}**  \n"
+                    f"left={left_score:.4f} | right={right_score:.4f} | delta={delta:+.4f}"
+                )
+
+    with st.expander("Show unique results"):
+        if left_only:
+            st.markdown("**Only in left query**")
+            for item in left_only:
+                st.markdown(f"- {result_label(item)}")
+        else:
+            st.caption("No left-only results.")
+
+        if right_only:
+            st.markdown("**Only in right query**")
+            for item in right_only:
+                st.markdown(f"- {result_label(item)}")
+        else:
+            st.caption("No right-only results.")
+
     with left:
         st.markdown('<div class="stack-panel"><div class="stack-kicker">Comparison</div><h2 style="margin:0;">Left favorite</h2></div>', unsafe_allow_html=True)
         st.caption(left_config["query"])
