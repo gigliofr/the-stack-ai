@@ -212,12 +212,18 @@ def compare_result_sets(
     return overlap, left_only, right_only
 
 
-def stability_status(overlap_count: int, left_count: int, right_count: int) -> tuple[float, str, str]:
+def stability_status(
+    overlap_count: int,
+    left_count: int,
+    right_count: int,
+    high_threshold: float,
+    medium_threshold: float,
+) -> tuple[float, str, str]:
     union_count = max(1, left_count + right_count - overlap_count)
     score = overlap_count / union_count
-    if score >= 0.70:
+    if score >= high_threshold:
         return score, "High", "#3CB371"
-    if score >= 0.40:
+    if score >= medium_threshold:
         return score, "Medium", "#F0AD4E"
     return score, "Low", "#E57373"
 
@@ -236,6 +242,8 @@ st.session_state.setdefault("query_text", "When does summoning sickness apply?")
 st.session_state.setdefault("favorite_choice", "")
 st.session_state.setdefault("compare_left", "")
 st.session_state.setdefault("compare_right", "")
+st.session_state.setdefault("stability_high_threshold", 0.70)
+st.session_state.setdefault("stability_medium_threshold", 0.40)
 get_favorites()
 
 with st.sidebar:
@@ -312,6 +320,26 @@ with st.sidebar:
         compare_button = st.button("Compare selected favorites")
         swap_button = st.button("Swap selected favorites")
         show_only_differences = st.checkbox("Show only differences", key="show_only_differences")
+
+        st.caption("Stability thresholds")
+        stability_high_threshold = st.slider(
+            "High threshold",
+            min_value=0.50,
+            max_value=0.95,
+            value=float(st.session_state["stability_high_threshold"]),
+            step=0.01,
+            key="stability_high_threshold",
+        )
+        max_medium = max(0.49, stability_high_threshold - 0.01)
+        stability_medium_threshold = st.slider(
+            "Medium threshold",
+            min_value=0.05,
+            max_value=float(max_medium),
+            value=min(float(st.session_state["stability_medium_threshold"]), float(max_medium)),
+            step=0.01,
+            key="stability_medium_threshold",
+        )
+
         if swap_button and st.session_state.get("compare_left") and st.session_state.get("compare_right"):
             st.session_state["compare_left"], st.session_state["compare_right"] = (
                 st.session_state["compare_right"],
@@ -424,7 +452,11 @@ elif favorites and compare_button:
     right_results = right_data.get("results", [])
     overlap, left_only, right_only = compare_result_sets(left_results, right_results)
     stability, stability_label, stability_color = stability_status(
-        len(overlap), len(left_results), len(right_results)
+        len(overlap),
+        len(left_results),
+        len(right_results),
+        float(st.session_state.get("stability_high_threshold", 0.70)),
+        float(st.session_state.get("stability_medium_threshold", 0.40)),
     )
 
     st.markdown('<div class="stack-panel"><div class="stack-kicker">Analysis</div><h2 style="margin:0;">Comparison summary</h2></div>', unsafe_allow_html=True)
