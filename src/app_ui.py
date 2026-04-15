@@ -188,6 +188,8 @@ st.session_state.setdefault("only_rules", False)
 st.session_state.setdefault("show_source_text", True)
 st.session_state.setdefault("query_text", "When does summoning sickness apply?")
 st.session_state.setdefault("favorite_choice", "")
+st.session_state.setdefault("compare_left", "")
+st.session_state.setdefault("compare_right", "")
 get_favorites()
 
 with st.sidebar:
@@ -262,6 +264,13 @@ with st.sidebar:
             key="compare_right",
         )
         compare_button = st.button("Compare selected favorites")
+        swap_button = st.button("Swap selected favorites")
+        if swap_button and st.session_state.get("compare_left") and st.session_state.get("compare_right"):
+            st.session_state["compare_left"], st.session_state["compare_right"] = (
+                st.session_state["compare_right"],
+                st.session_state["compare_left"],
+            )
+            st.rerun()
 
     history = get_history()
     if history:
