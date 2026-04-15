@@ -26,9 +26,28 @@ function Invoke-JsonPost {
     return Invoke-RestMethod -Method Post -Uri $Uri -ContentType "application/json" -Body ($Body | ConvertTo-Json -Depth 10)
 }
 
+function Invoke-JsonGetWithRetry {
+    param(
+        [string]$Uri,
+        [int]$Retries = 10,
+        [int]$DelayMs = 500
+    )
+
+    for ($i = 0; $i -lt $Retries; $i++) {
+        try {
+            return Invoke-RestMethod -Method Get -Uri $Uri
+        } catch {
+            if ($i -eq ($Retries - 1)) {
+                throw
+            }
+            Start-Sleep -Milliseconds $DelayMs
+        }
+    }
+}
+
 Write-Host "Running smoke test against $BaseUrl" -ForegroundColor Cyan
 
-$health = Invoke-RestMethod -Method Get -Uri "$BaseUrl/health"
+$health = Invoke-JsonGetWithRetry -Uri "$BaseUrl/health"
 Assert-True ($health.status -eq "ok") "Health endpoint returns status=ok"
 
 $query = Invoke-JsonPost -Uri "$BaseUrl/query" -Body @{

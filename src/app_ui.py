@@ -10,6 +10,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 from urllib import error, request
+from urllib.parse import urlparse
 
 import streamlit as st
 
@@ -19,7 +20,8 @@ except ImportError:  # pragma: no cover
     GoogleTranslator = None
 
 
-API_DEFAULT = "http://127.0.0.1:8000"
+API_DEFAULT = "http://127.0.0.1:18000"
+API_FALLBACK_PORTS = (18000, 8000)
 MODEL_DEFAULT = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 FAVORITES_PATH = Path("data/query_favorites.json")
 
@@ -58,31 +60,54 @@ st.markdown(
 )
 
 
-def post_query(base_url: str, payload: dict[str, object]) -> dict[str, object]:
-    endpoint = f"{base_url.rstrip('/')}/query"
-    body = json.dumps(payload).encode("utf-8")
-    http_request = request.Request(
-        endpoint,
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+def api_candidates(base_url: str) -> list[str]:
+    normalized = base_url.rstrip("/")
+    candidates = [normalized]
+    parsed = urlparse(normalized)
+    hostname = parsed.hostname
 
-    with request.urlopen(http_request, timeout=120) as response:
-        return json.loads(response.read().decode("utf-8"))
+    if hostname in {None, "127.0.0.1", "localhost"}:
+        scheme = parsed.scheme or "http"
+        host_variants = ["127.0.0.1", "localhost"]
+        if hostname and hostname not in host_variants:
+            host_variants.insert(0, hostname)
+        for port in API_FALLBACK_PORTS:
+            for host in host_variants:
+                candidate = f"{scheme}://{host}:{port}"
+                if candidate not in candidates:
+                    candidates.append(candidate)
+
+    return candidates
 
 
 def post_api(base_url: str, path: str, payload: dict[str, object]) -> dict[str, object]:
-    endpoint = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
     body = json.dumps(payload).encode("utf-8")
-    http_request = request.Request(
-        endpoint,
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with request.urlopen(http_request, timeout=120) as response:
-        return json.loads(response.read().decode("utf-8"))
+    last_error: Exception | None = None
+
+    for candidate in api_candidates(base_url):
+        endpoint = f"{candidate.rstrip('/')}/{path.lstrip('/')}"
+        http_request = request.Request(
+            endpoint,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with request.urlopen(http_request, timeout=120) as response:
+                if candidate != base_url:
+                    st.session_state["base_url"] = candidate
+                return json.loads(response.read().decode("utf-8"))
+        except error.URLError as exc:
+            last_error = exc
+
+    if last_error is not None:
+        raise last_error
+
+    raise RuntimeError("Impossibile raggiungere l'API")
+
+
+def post_query(base_url: str, payload: dict[str, object]) -> dict[str, object]:
+    return post_api(base_url, "/query", payload)
 
 
 def translation_available() -> bool:
