@@ -370,6 +370,8 @@ def ensure_agent_state() -> None:
     st.session_state.setdefault("agent_seed_cards", "")
     st.session_state.setdefault("agent_decklist", "")
     st.session_state.setdefault("agent_commander", "")
+    st.session_state.setdefault("agent_archidekt_import", "")
+    st.session_state.setdefault("agent_import_feedback", "")
     st.session_state.setdefault("agent_target_size", 60)
     st.session_state.setdefault("agent_show_source_text", True)
 
@@ -386,6 +388,89 @@ def parse_decklist(text: str) -> list[dict[str, object]]:
             continue
         rows.append({"name": clean_archidekt_card_name(line), "count": 1})
     return rows
+
+
+def parse_archidekt_import(text: str) -> dict[str, object]:
+    headers = {
+        "commander": "commander",
+        "commander(s)": "commander",
+        "mainboard": "mainboard",
+        "deck": "mainboard",
+        "cards": "mainboard",
+        "sideboard": "sideboard",
+        "maybeboard": "maybeboard",
+    }
+
+    section = "mainboard"
+    sections: dict[str, list[tuple[int, str]]] = {
+        "commander": [],
+        "mainboard": [],
+        "sideboard": [],
+        "maybeboard": [],
+    }
+
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        normalized_header = re.sub(r"\s*[:\-]+\s*$", "", line).strip().lower()
+        if normalized_header in headers:
+            section = headers[normalized_header]
+            continue
+
+        match = re.match(r"^(\d+)\s+x?\s*(.+)$", line)
+        if match:
+            count = int(match.group(1))
+            name = clean_archidekt_card_name(match.group(2))
+            if name:
+                sections[section].append((count, name))
+            continue
+
+        # Fallback for plain card-name lines under a known section.
+        name = clean_archidekt_card_name(line)
+        if name:
+            sections[section].append((1, name))
+
+    commander_name = ""
+    if sections["commander"]:
+        commander_name = sections["commander"][0][1]
+
+    # Keep mainboard as decklist input for validation.
+    deck_rows = sections["mainboard"]
+    deck_text = "\n".join([f"{count} {name}" for count, name in deck_rows])
+
+    return {
+        "commander": commander_name,
+        "deck_text": deck_text,
+        "counts": {
+            "commander": len(sections["commander"]),
+            "mainboard": len(sections["mainboard"]),
+            "sideboard": len(sections["sideboard"]),
+            "maybeboard": len(sections["maybeboard"]),
+        },
+    }
+
+
+def apply_archidekt_import() -> None:
+    payload = parse_archidekt_import(str(st.session_state.get("agent_archidekt_import") or ""))
+    commander = str(payload.get("commander") or "")
+    deck_text = str(payload.get("deck_text") or "")
+    counts = payload.get("counts") or {}
+
+    if commander:
+        st.session_state["agent_commander"] = commander
+        st.session_state["agent_format"] = "commander"
+    if deck_text:
+        st.session_state["agent_decklist"] = deck_text
+
+    st.session_state["agent_import_feedback"] = (
+        "Import completato: "
+        f"commander={counts.get('commander', 0)}, "
+        f"mainboard={counts.get('mainboard', 0)}, "
+        f"sideboard={counts.get('sideboard', 0)}, "
+        f"maybeboard={counts.get('maybeboard', 0)}"
+    )
 
 
 def detect_agent_intent(message: str) -> str:
@@ -765,6 +850,15 @@ with agent_tab:
             key="agent_format",
             help="Seleziona il formato del mazzo.",
         )
+        st.text_area(
+            "Import Archidekt (opzionale)",
+            key="agent_archidekt_import",
+            height=140,
+            help="Incolla export Archidekt con sezioni Commander/Mainboard/Sideboard e premi Importa.",
+        )
+        st.button("Importa Archidekt", on_click=apply_archidekt_import)
+        if st.session_state.get("agent_import_feedback"):
+            st.caption(str(st.session_state.get("agent_import_feedback")))
         st.text_input("Comandante (opzionale)", key="agent_commander")
         st.text_area("Seed cards", key="agent_seed_cards", height=120, help="Una carta per riga, oppure carte separate da virgola.")
         st.text_area("Lista mazzo", key="agent_decklist", height=180, help="Usata per la validazione. Formato: 4 Lightning Bolt\n2 Snapcaster Mage")
