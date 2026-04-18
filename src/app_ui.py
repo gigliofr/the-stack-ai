@@ -26,23 +26,23 @@ API_FALLBACK_PORTS = (18000, 8000)
 MODEL_DEFAULT = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 FAVORITES_PATH = Path("data/query_favorites.json")
 AGENT_FORMAT_OPTIONS = [
-    "standard",
     "alchemy",
-    "pioneer",
-    "explorer",
-    "historic",
-    "timeless",
-    "modern",
-    "legacy",
-    "vintage",
-    "pauper",
-    "premodern",
-    "oldschool",
     "brawl",
-    "standardbrawl",
     "commander",
     "duel",
+    "explorer",
+    "historic",
+    "legacy",
+    "modern",
+    "oldschool",
+    "pauper",
     "paupercommander",
+    "pioneer",
+    "premodern",
+    "standard",
+    "standardbrawl",
+    "timeless",
+    "vintage",
 ]
 
 
