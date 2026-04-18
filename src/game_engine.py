@@ -90,7 +90,12 @@ def _to_set(values: list[str], min_len: int = 3) -> set[str]:
 
 
 def _is_basic_land(card: dict[str, Any]) -> bool:
-    return "basic land" in str(card.get("type_line") or "").lower()
+    type_line = str(card.get("type_line") or "").lower()
+    return (
+        "basic land" in type_line
+        or "terra base" in type_line
+        or ("basic" in type_line and "land" in type_line)
+    )
 
 
 def _is_legendary_creature(card: dict[str, Any]) -> bool:
@@ -130,12 +135,32 @@ def _is_commander_candidate(card: dict[str, Any]) -> bool:
 def _parse_commander_list(commander: str | None) -> list[str]:
     if not commander:
         return []
+
+    def _clean(raw: str) -> str:
+        text = str(raw or "").strip()
+        text = re.sub(r"^\d+\s*x?\s*", "", text, flags=re.IGNORECASE)
+        text = re.split(r"\s*[\[(]", text, maxsplit=1)[0].strip()
+        return " ".join(text.split())
+
     names: list[str] = []
-    for part in re.split(r"[,;\n]+", commander):
-        cleaned = " ".join(str(part or "").strip().split())
-        if cleaned:
-            names.append(cleaned)
-    return names
+    for part in re.split(r"[;\n]+", commander):
+        # Keep commas because many card names include commas (e.g., "Terra, Herald of Hope").
+        split_candidates = re.split(r"\s*(?:/|\+|\|)\s*", part)
+        for candidate in split_candidates:
+            cleaned = _clean(candidate)
+            if cleaned:
+                names.append(cleaned)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        key = normalize_name(name)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(name)
+
+    return deduped
 
 
 def _classify_commander_role(card: dict[str, Any]) -> dict[str, bool]:
