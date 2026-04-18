@@ -382,7 +382,7 @@ def parse_decklist(text: str) -> list[dict[str, object]]:
         line = line.strip()
         if not line:
             continue
-        match = re.match(r"^(\d+)\s+x?\s*(.+)$", line)
+        match = re.match(r"^(\d+)\s*x?\s+(.+)$", line)
         if match:
             rows.append({"name": clean_archidekt_card_name(match.group(2)), "count": int(match.group(1))})
             continue
@@ -419,7 +419,7 @@ def parse_archidekt_import(text: str) -> dict[str, object]:
             section = headers[normalized_header]
             continue
 
-        match = re.match(r"^(\d+)\s+x?\s*(.+)$", line)
+        match = re.match(r"^(\d+)\s*x?\s+(.+)$", line)
         if match:
             count = int(match.group(1))
             name = clean_archidekt_card_name(match.group(2))
