@@ -348,6 +348,8 @@ def validate_deck(
     rules = FORMAT_RULES[fmt_norm]
     errors: list[str] = []
     warnings: list[str] = []
+    copy_violations = 0
+    basic_land_duplicate_copies = 0
 
     total_cards = 0
     deck_by_key: dict[str, dict[str, Any]] = {}
@@ -385,11 +387,14 @@ def validate_deck(
 
         max_copies = int(rules.get("max_copies", 4))
         if _is_basic_land(card):
+            if count > 1:
+                basic_land_duplicate_copies += (count - 1)
             max_copies = 9999
         if status == "restricted":
             max_copies = min(max_copies, 1)
 
         if count > max_copies:
+            copy_violations += 1
             errors.append(
                 f"{card['name']} ha {count} copie ma il massimo in {fmt_norm} e {max_copies}."
             )
@@ -498,6 +503,8 @@ def validate_deck(
             "deck_size": deck_size,
             "resolved_cards": len(deck_by_key),
             "unknown_cards": len(unknown_cards),
+            "copy_violations": copy_violations,
+            "basic_land_duplicate_copies": basic_land_duplicate_copies,
             "commanders": [card.get("name") for card in commander_cards],
             "composition": composition,
             "power_level": power_level,

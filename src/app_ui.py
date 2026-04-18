@@ -604,6 +604,16 @@ def summarize_agent_response(response: dict[str, object]) -> str:
         if isinstance(stats, dict):
             lines.append(f"- Formato: {stats.get('format')}")
             lines.append(f"- Dimensione mazzo: {stats.get('deck_size')}")
+            copy_violations = int(stats.get("copy_violations", 0) or 0)
+            basic_land_dupes = int(stats.get("basic_land_duplicate_copies", 0) or 0)
+            if copy_violations == 0:
+                lines.append("- Regola singleton: OK")
+            else:
+                lines.append(f"- Regola singleton: {copy_violations} violazioni")
+            if basic_land_dupes > 0:
+                lines.append(
+                    f"- Terre base duplicate rilevate: {basic_land_dupes} copie extra (consentite)."
+                )
             commanders = stats.get("commanders") or []
             if commanders:
                 lines.append(f"- Comandante/i: {', '.join([str(c) for c in commanders])}")
