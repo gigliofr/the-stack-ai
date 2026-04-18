@@ -25,6 +25,25 @@ API_DEFAULT = os.environ.get("THE_STACK_API_URL", "http://127.0.0.1:18000")
 API_FALLBACK_PORTS = (18000, 8000)
 MODEL_DEFAULT = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 FAVORITES_PATH = Path("data/query_favorites.json")
+AGENT_FORMAT_OPTIONS = [
+    "standard",
+    "alchemy",
+    "pioneer",
+    "explorer",
+    "historic",
+    "timeless",
+    "modern",
+    "legacy",
+    "vintage",
+    "pauper",
+    "premodern",
+    "oldschool",
+    "brawl",
+    "standardbrawl",
+    "commander",
+    "duel",
+    "paupercommander",
+]
 
 
 st.set_page_config(page_title="The Stack", page_icon="🃏", layout="wide")
@@ -371,12 +390,14 @@ def parse_decklist(text: str) -> list[dict[str, object]]:
 
 def detect_agent_intent(message: str) -> str:
     text = message.lower()
-    if any(token in text for token in ["legal", "legalità", "legale", "bann", "restricted", "bandita"]):
+    if any(token in text for token in ["valid", "valida", "verifica", "controlla", "legal", "legalità", "legale", "bann", "restricted", "bandita"]):
         return "validate-deck"
     if any(token in text for token in ["sinerg", "synergy", "sinergie", "combo", "combo"]):
         return "suggest-synergies"
-    if any(token in text for token in ["costruisci", "build", "mazzo", "deck", "lista"]):
+    if any(token in text for token in ["costruisci", "build", "genera", "crea"]):
         return "build-deck"
+    if any(token in text for token in ["mazzo", "deck", "lista"]):
+        return "validate-deck"
     return "query"
 
 
@@ -498,6 +519,24 @@ def summarize_agent_response(response: dict[str, object]) -> str:
         if isinstance(stats, dict):
             lines.append(f"- Formato: {stats.get('format')}")
             lines.append(f"- Dimensione mazzo: {stats.get('deck_size')}")
+            commanders = stats.get("commanders") or []
+            if commanders:
+                lines.append(f"- Comandante/i: {', '.join([str(c) for c in commanders])}")
+            composition = stats.get("composition") or {}
+            if isinstance(composition, dict) and any(int(composition.get(key, 0)) > 0 for key in ["lands", "ramp", "draw", "removal", "board_wipes"]):
+                lines.append(
+                    "- Struttura: "
+                    f"terre={composition.get('lands', 0)}, "
+                    f"ramp={composition.get('ramp', 0)}, "
+                    f"draw={composition.get('draw', 0)}, "
+                    f"removal={composition.get('removal', 0)}, "
+                    f"wipe={composition.get('board_wipes', 0)}"
+                )
+            power_level = stats.get("power_level") or {}
+            if isinstance(power_level, dict) and power_level.get("tier"):
+                lines.append(
+                    f"- Power level stimato: {power_level.get('tier')} (score {power_level.get('score')})"
+                )
         return "\n".join(lines)
 
     if "deck" in response:
@@ -564,6 +603,8 @@ st.session_state.setdefault("translate_to_italian", True)
 get_favorites()
 
 ensure_agent_state()
+if str(st.session_state.get("agent_format") or "") not in AGENT_FORMAT_OPTIONS:
+    st.session_state["agent_format"] = "modern"
 
 if not st.session_state["agent_messages"]:
     st.session_state["agent_messages"].append(
@@ -718,7 +759,12 @@ with agent_tab:
 
     with agent_right:
         st.subheader("Controlli agente")
-        st.text_input("Formato", key="agent_format", help="Esempio: modern, commander, pioneer")
+        st.selectbox(
+            "Formato",
+            options=AGENT_FORMAT_OPTIONS,
+            key="agent_format",
+            help="Seleziona il formato del mazzo.",
+        )
         st.text_input("Comandante (opzionale)", key="agent_commander")
         st.text_area("Seed cards", key="agent_seed_cards", height=120, help="Una carta per riga, oppure carte separate da virgola.")
         st.text_area("Lista mazzo", key="agent_decklist", height=180, help="Usata per la validazione. Formato: 4 Lightning Bolt\n2 Snapcaster Mage")
