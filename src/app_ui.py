@@ -45,6 +45,43 @@ AGENT_FORMAT_OPTIONS = [
     "vintage",
 ]
 
+FORMAT_EXACT_TARGETS: dict[str, int] = {
+    "commander": 100,
+    "duel": 100,
+    "paupercommander": 100,
+    "brawl": 60,
+    "standardbrawl": 60,
+}
+
+FORMAT_MIN_TARGETS: dict[str, int] = {
+    "standard": 60,
+    "alchemy": 60,
+    "pioneer": 60,
+    "explorer": 60,
+    "historic": 60,
+    "timeless": 60,
+    "modern": 60,
+    "legacy": 60,
+    "vintage": 60,
+    "pauper": 60,
+    "premodern": 60,
+    "oldschool": 60,
+}
+
+BASIC_LAND_NAMES = {
+    "plains",
+    "island",
+    "swamp",
+    "mountain",
+    "forest",
+    "wastes",
+    "snow-covered plains",
+    "snow-covered island",
+    "snow-covered swamp",
+    "snow-covered mountain",
+    "snow-covered forest",
+}
+
 
 st.set_page_config(page_title="The Stack", page_icon="🃏", layout="wide")
 
@@ -388,6 +425,70 @@ def parse_decklist(text: str) -> list[dict[str, object]]:
             continue
         rows.append({"name": clean_archidekt_card_name(line), "count": 1})
     return rows
+
+
+def deck_input_overview(fmt: str, deck_text: str, commander_text: str) -> dict[str, int | str]:
+    rows = parse_decklist(deck_text)
+    total_cards = int(sum(int(item.get("count") or 0) for item in rows))
+
+    by_name: dict[str, int] = {}
+    for item in rows:
+        name = clean_archidekt_card_name(str(item.get("name") or ""))
+        count = int(item.get("count") or 0)
+        if not name or count <= 0:
+            continue
+        key = name.lower()
+        by_name[key] = by_name.get(key, 0) + count
+
+    commander_name = clean_archidekt_card_name(commander_text).lower()
+    if commander_name and commander_name not in by_name:
+        total_cards += 1
+
+    basic_land_extra = sum(
+        max(0, count - 1)
+        for key, count in by_name.items()
+        if key in BASIC_LAND_NAMES
+    )
+    non_basic_copy_violations = sum(
+        1
+        for key, count in by_name.items()
+        if key not in BASIC_LAND_NAMES and count > 1
+    )
+
+    fmt_norm = str(fmt or "").strip().lower()
+    target_exact = FORMAT_EXACT_TARGETS.get(fmt_norm)
+    target_min = FORMAT_MIN_TARGETS.get(fmt_norm)
+
+    if target_exact is not None:
+        missing = max(0, target_exact - total_cards)
+        return {
+            "total_cards": total_cards,
+            "target_exact": target_exact,
+            "target_min": 0,
+            "missing_cards": missing,
+            "basic_land_extra": basic_land_extra,
+            "non_basic_copy_violations": non_basic_copy_violations,
+        }
+
+    if target_min is not None:
+        missing = max(0, target_min - total_cards)
+        return {
+            "total_cards": total_cards,
+            "target_exact": 0,
+            "target_min": target_min,
+            "missing_cards": missing,
+            "basic_land_extra": basic_land_extra,
+            "non_basic_copy_violations": non_basic_copy_violations,
+        }
+
+    return {
+        "total_cards": total_cards,
+        "target_exact": 0,
+        "target_min": 0,
+        "missing_cards": 0,
+        "basic_land_extra": basic_land_extra,
+        "non_basic_copy_violations": non_basic_copy_violations,
+    }
 
 
 def parse_archidekt_import(text: str) -> dict[str, object]:
@@ -872,6 +973,34 @@ with agent_tab:
         st.text_input("Comandante (opzionale)", key="agent_commander")
         st.text_area("Seed cards", key="agent_seed_cards", height=120, help="Una carta per riga, oppure carte separate da virgola.")
         st.text_area("Lista mazzo", key="agent_decklist", height=180, help="Usata per la validazione. Formato: 4 Lightning Bolt\n2 Snapcaster Mage")
+
+        deck_overview = deck_input_overview(
+            str(st.session_state.get("agent_format") or ""),
+            str(st.session_state.get("agent_decklist") or ""),
+            str(st.session_state.get("agent_commander") or ""),
+        )
+        total_cards = int(deck_overview.get("total_cards", 0) or 0)
+        target_exact = int(deck_overview.get("target_exact", 0) or 0)
+        target_min = int(deck_overview.get("target_min", 0) or 0)
+        missing_cards = int(deck_overview.get("missing_cards", 0) or 0)
+        basic_land_extra = int(deck_overview.get("basic_land_extra", 0) or 0)
+        non_basic_copy_violations = int(deck_overview.get("non_basic_copy_violations", 0) or 0)
+
+        if target_exact > 0:
+            st.caption(f"Totale carte input: {total_cards}/{target_exact} (mancano: {missing_cards})")
+        elif target_min > 0:
+            st.caption(f"Totale carte input: {total_cards} (target minimo: {target_min})")
+        else:
+            st.caption(f"Totale carte input: {total_cards}")
+
+        if non_basic_copy_violations == 0:
+            st.caption("Singleton non-basic: OK")
+        else:
+            st.caption(f"Singleton non-basic: {non_basic_copy_violations} violazioni")
+
+        if basic_land_extra > 0:
+            st.caption(f"Terre base duplicate: {basic_land_extra} copie extra (consentite)")
+
         st.number_input("Dimensione mazzo target", min_value=1, max_value=250, key="agent_target_size")
         st.checkbox("Mostra testo completo regole nelle risposte", key="agent_show_source_text")
 
