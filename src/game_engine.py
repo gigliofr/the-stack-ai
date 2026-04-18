@@ -14,6 +14,7 @@ from src.query_knowledge import read_jsonl
 FORMAT_RULES: dict[str, dict[str, Any]] = {
     "standard": {"deck_min": 60, "max_copies": 4},
     "pioneer": {"deck_min": 60, "max_copies": 4},
+    "historic": {"deck_min": 60, "max_copies": 4},
     "modern": {"deck_min": 60, "max_copies": 4},
     "legacy": {"deck_min": 60, "max_copies": 4},
     "vintage": {"deck_min": 60, "max_copies": 4},
@@ -27,7 +28,10 @@ FORMAT_RULES: dict[str, dict[str, Any]] = {
 
 
 def normalize_name(value: str) -> str:
-    return " ".join(str(value or "").strip().lower().split())
+    text = str(value or "").strip()
+    text = re.sub(r"^\d+\s*x?\s*", "", text, flags=re.IGNORECASE)
+    text = re.split(r"\s*[\[(]", text, maxsplit=1)[0].strip()
+    return " ".join(text.lower().split())
 
 
 def _words(value: str) -> list[str]:

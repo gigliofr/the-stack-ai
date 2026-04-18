@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import csv
+import os
 import io
 import re
 from functools import lru_cache
@@ -20,7 +21,7 @@ except ImportError:  # pragma: no cover
     GoogleTranslator = None
 
 
-API_DEFAULT = "http://127.0.0.1:18000"
+API_DEFAULT = os.environ.get("THE_STACK_API_URL", "http://127.0.0.1:18000")
 API_FALLBACK_PORTS = (18000, 8000)
 MODEL_DEFAULT = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 FAVORITES_PATH = Path("data/query_favorites.json")
@@ -210,6 +211,20 @@ def make_payload(config: dict[str, object]) -> dict[str, object]:
     }
 
 
+def clean_archidekt_card_name(text: str) -> str:
+    cleaned = str(text or "").strip()
+    cleaned = re.sub(r"^\d+\s*x?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.split(r"\s*[\[(]", cleaned, maxsplit=1)[0].strip()
+    return " ".join(cleaned.split())
+
+
+def looks_like_decklist(text: str) -> bool:
+    for line in str(text or "").splitlines():
+        if re.match(r"^\s*\d+\s*x?\s+", line):
+            return True
+    return False
+
+
 def render_result_item(
     result: dict[str, object],
     show_source_text: bool,
@@ -348,9 +363,9 @@ def parse_decklist(text: str) -> list[dict[str, object]]:
             continue
         match = re.match(r"^(\d+)\s+x?\s*(.+)$", line)
         if match:
-            rows.append({"name": match.group(2).strip(), "count": int(match.group(1))})
+            rows.append({"name": clean_archidekt_card_name(match.group(2)), "count": int(match.group(1))})
             continue
-        rows.append({"name": line, "count": 1})
+        rows.append({"name": clean_archidekt_card_name(line), "count": 1})
     return rows
 
 
@@ -369,6 +384,16 @@ def extract_seed_cards(message: str) -> list[str]:
     quoted = re.findall(r'"([^"]+)"', message)
     if quoted:
         return [item.strip() for item in quoted if item.strip()]
+
+    deck_style: list[str] = []
+    for line in str(message or "").splitlines():
+        if re.match(r"^\s*\d+\s*x?\s+", line):
+            cleaned = clean_archidekt_card_name(re.sub(r"^\s*\d+\s*x?\s+", "", line))
+            if cleaned:
+                deck_style.append(cleaned)
+    if deck_style:
+        return deck_style
+
     # split on commas or semicolons for quick prompts like: "Bolt, Snapcaster Mage"
     parts = re.split(r"[,;\n]+", message)
     seeds: list[str] = []
@@ -386,10 +411,16 @@ def agent_system_response(base_url: str, user_message: str) -> dict[str, object]
 
     if intent == "validate-deck":
         deck_text = str(st.session_state.get("agent_decklist") or "")
+        if not deck_text and looks_like_decklist(str(st.session_state.get("agent_seed_cards") or "")):
+            deck_text = str(st.session_state.get("agent_seed_cards") or "")
+        if not deck_text and looks_like_decklist(user_message):
+            deck_text = user_message
+
         deck_rows = parse_decklist(deck_text)
-        commander = str(st.session_state.get("agent_commander") or "").strip() or None
+        commander_text = str(st.session_state.get("agent_commander") or "").strip()
+        commander = clean_archidekt_card_name(commander_text) or None
         if not deck_rows:
-            deck_rows = parse_decklist(user_message)
+            deck_rows = parse_decklist(user_message) if looks_like_decklist(user_message) else []
         if not deck_rows:
             raise ValueError("Per la validazione serve una lista carte. Inseriscila nel campo mazzo o nel messaggio.")
         return post_api(
